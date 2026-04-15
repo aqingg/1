@@ -1,0 +1,15 @@
+8086
+cd PUMA_Server-main/PUMA_Server-main
+python main.py
+
+7175
+cd PUMA_Client-main/PUMA_Client-main
+python client.py
+
+3000
+cd app-pms-gate-main
+npm start
+
+3001
+cd app-pms-project-main
+npm start

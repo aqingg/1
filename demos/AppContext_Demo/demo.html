@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AppContext.js 功能与操作流程</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            padding: 30px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #1a1a2e;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        /* 功能概览卡片 */
+        .overview-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 40px;
+            box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
+        }
+        
+        .overview-title {
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        
+        .feature-item {
+            background: rgba(255,255,255,0.15);
+            padding: 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .feature-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
+        .feature-name {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+        
+        .feature-desc {
+            font-size: 0.9em;
+            opacity: 0.9;
+            line-height: 1.5;
+        }
+        
+        /* 操作流程时间线 */
+        .timeline {
+            position: relative;
+            padding-left: 40px;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 15px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, #667eea, #764ba2);
+            border-radius: 3px;
+        }
+        
+        .timeline-item {
+            position: relative;
+            margin-bottom: 30px;
+            background: white;
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .timeline-item:hover {
+            transform: translateX(5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -33px;
+            top: 30px;
+            width: 16px;
+            height: 16px;
+            background: #667eea;
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 0 0 3px #667eea;
+        }
+        
+        .step-number {
+            position: absolute;
+            left: -50px;
+            top: 25px;
+            background: #667eea;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .step-icon {
+            font-size: 2em;
+        }
+        
+        .step-title {
+            font-size: 1.4em;
+            color: #1a1a2e;
+            font-weight: bold;
+        }
+        
+        .step-type {
+            margin-left: auto;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+        
+        .step-type.auto {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .step-type.manual {
+            background: #cce5ff;
+            color: #004085;
+        }
+        
+        .step-desc {
+            color: #555;
+            line-height: 1.7;
+            margin-bottom: 20px;
+            font-size: 1.05em;
+        }
+        
+        /* API 调用展示 */
+        .api-calls {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+        
+        .api-calls-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .api-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .api-method {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
+            color: white;
+            min-width: 50px;
+            text-align: center;
+        }
+        
+        .api-method.get { background: #28a745; }
+        .api-method.post { background: #007bff; }
+        
+        .api-path {
+            font-family: 'Courier New', monospace;
+            color: #333;
+            font-weight: 600;
+            flex: 1;
+        }
+        
+        .api-func {
+            color: #666;
+            font-size: 0.9em;
+        }
+        
+        /* 用户操作说明 */
+        .user-actions {
+            background: #fff3cd;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 15px;
+            border: 2px dashed #ffc107;
+        }
+        
+        .user-actions-title {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .action-list {
+            list-style: none;
+        }
+        
+        .action-list li {
+            padding: 8px 0;
+            color: #856404;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .action-list li::before {
+            content: '👉';
+        }
+        
+        /* 界面预览 */
+        .ui-preview {
+            background: #e3f2fd;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+        
+        .ui-preview-title {
+            font-weight: bold;
+            color: #1565c0;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .mock-ui {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            border: 2px solid #90caf9;
+        }
+        
+        .mock-header {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .mock-content {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .mock-panel {
+            flex: 1;
+            background: #fafafa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px dashed #ccc;
+        }
+        
+        .mock-panel-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+        
+        .mock-item {
+            background: white;
+            padding: 8px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+            font-size: 0.85em;
+            color: #555;
+        }
+        
+        /* 代码示例 */
+        .code-section {
+            background: #1e1e1e;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 15px;
+            overflow-x: auto;
+        }
+        
+        .code-title {
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        
+        .code-block {
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+        
+        .code-keyword { color: #569cd6; }
+        .code-string { color: #ce9178; }
+        .code-comment { color: #6a9955; }
+        .code-func { color: #dcdcaa; }
+        
+        /* 提示框 */
+        .tip-box {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 15px 20px;
+            margin-top: 15px;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .tip-title {
+            font-weight: bold;
+            color: #2e7d32;
+            margin-bottom: 5px;
+        }
+        
+        .tip-content {
+            color: #555;
+            font-size: 0.95em;
+            line-height: 1.6;
+        }
+        
+        @media (max-width: 768px) {
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .timeline {
+                padding-left: 30px;
+            }
+            
+            .step-number {
+                left: -40px;
+                width: 28px;
+                height: 28px;
+                font-size: 0.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 AppContext.js 功能与操作流程</h1>
+        <p class="subtitle">按照实际使用顺序，了解你可以在页面上做什么</p>
+        
+        <!-- 功能概览 -->
+        <div class="overview-card">
+            <div class="overview-title">
+                <span>📦</span>
+                <span>AppContext 提供的核心功能</span>
+            </div>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <div class="feature-icon">👤</div>
+                    <div class="feature-name">用户认证</div>
+                    <div class="feature-desc">自动获取当前登录用户的信息（用户名、部门）</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">📁</div>
+                    <div class="feature-name">项目管理</div>
+                    <div class="feature-desc">创建、编辑、删除、排序项目，支持标签分类</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">✅</div>
+                    <div class="feature-name">待办事项</div>
+                    <div class="feature-desc">管理个人任务，支持分配、截止日期、标签</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔄</div>
+                    <div class="feature-name">实时同步</div>
+                    <div class="feature-desc">SSE 长连接，数据变更自动刷新</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">🔗</div>
+                    <div class="feature-name">快捷链接</div>
+                    <div class="feature-desc">快速访问常用系统链接</div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">📊</div>
+                    <div class="feature-name">基础数据</div>
+                    <div class="feature-desc">部门列表、团队成员、统计信息</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 操作流程时间线 -->
+        <div class="timeline">
+            
+            <!-- 步骤1: 页面加载 -->
+            <div class="timeline-item">
+                <div class="step-number">1</div>
+                <div class="step-header">
+                    <span class="step-icon">🚀</span>
+                    <span class="step-title">打开页面（自动初始化）</span>
+                    <span class="step-type auto">自动执行</span>
+                </div>
+                <div class="step-desc">
+                    当你访问应用时，系统会自动完成一系列初始化操作，无需你手动操作。
+                    这个过程会获取你的身份信息，并加载必要的基础数据。
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 AppContext 自动调用的接口：</div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/userinfo</span>
+                        <span class="api-func">→ 获取你的用户名和部门</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/template/getUnified</span>
+                        <span class="api-func">→ 获取部门列表</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/template/teamMembers</span>
+                        <span class="api-func">→ 获取团队成员信息</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/template/standardLinks</span>
+                        <span class="api-func">→ 获取快捷链接</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/project/listProjects</span>
+                        <span class="api-func">→ 加载你的项目列表</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/todo/list</span>
+                        <span class="api-func">→ 加载你的待办事项</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/sse/stream</span>
+                        <span class="api-func">→ 建立实时推送连接</span>
+                    </div>
+                </div>
+                
+                <div class="ui-preview">
+                    <div class="ui-preview-title">🖥️ 页面加载完成后你会看到：</div>
+                    <div class="mock-ui">
+                        <div class="mock-header">👤 欢迎，张三 (研发部)</div>
+                        <div class="mock-content">
+                            <div class="mock-panel">
+                                <div class="mock-panel-title">📋 我的待办</div>
+                                <div class="mock-item">☐ 完成项目报告</div>
+                                <div class="mock-item">☐ 代码审查</div>
+                                <div class="mock-item">☐ 团队会议</div>
+                            </div>
+                            <div class="mock-panel">
+                                <div class="mock-panel-title">📁 我的项目</div>
+                                <div class="mock-item">🔵 项目 A (Running)</div>
+                                <div class="mock-item">🟡 项目 B (Quotation)</div>
+                                <div class="mock-item">🟢 项目 C (SOP)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤2: 查看项目 -->
+            <div class="timeline-item">
+                <div class="step-number">2</div>
+                <div class="step-header">
+                    <span class="step-icon">📁</span>
+                    <span class="step-title">查看项目列表和统计</span>
+                    <span class="step-type manual">用户操作</span>
+                </div>
+                <div class="step-desc">
+                    在页面右侧，你可以看到所有项目的列表和统计信息。
+                    系统会自动统计不同状态的项目数量（Quotation/Running/SOP）。
+                </div>
+                
+                <div class="user-actions">
+                    <div class="user-actions-title">👆 你可以进行的操作：</div>
+                    <ul class="action-list">
+                        <li>点击项目名称查看详情</li>
+                        <li>查看统计图表了解项目分布</li>
+                        <li>拖拽项目调整排序顺序</li>
+                    </ul>
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 涉及的功能方法：</div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/project/getAllProjectTags</span>
+                        <span class="api-func">→ 获取项目标签统计</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/project/reorderProjects</span>
+                        <span class="api-func">→ 保存拖拽排序结果</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤3: 创建项目 -->
+            <div class="timeline-item">
+                <div class="step-number">3</div>
+                <div class="step-header">
+                    <span class="step-icon">➕</span>
+                    <span class="step-title">创建新项目</span>
+                    <span class="step-type manual">用户操作</span>
+                </div>
+                <div class="step-desc">
+                    当你需要开始一个新项目时，可以创建项目并设置相关信息。
+                    创建后项目会立即显示在列表中。
+                </div>
+                
+                <div class="user-actions">
+                    <div class="user-actions-title">👆 操作步骤：</div>
+                    <ul class="action-list">
+                        <li>点击"新建项目"按钮</li>
+                        <li>填写项目名称</li>
+                        <li>选择所属部门</li>
+                        <li>添加标签（如 Running, Quotation）</li>
+                        <li>填写备注说明</li>
+                        <li>点击保存</li>
+                    </ul>
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 调用的接口：</div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/project/createProject</span>
+                        <span class="api-func">→ 创建新项目</span>
+                    </div>
+                </div>
+                
+                <div class="code-section">
+                    <div class="code-title">💻 AppContext 中的对应代码：</div>
+                    <div class="code-block">
+<span class="code-keyword">const</span> <span class="code-func">createProject</span> = (values) => {
+    <span class="code-keyword">const</span> payload = {
+        username: userId,
+        projectName: values.projectName,
+        department: values.department,
+        owner: userId,
+        editors: [userId],
+        comment: values.comment,
+        tags: values.tags  <span class="code-comment">// ["Running"] 或 ["Quotation"]</span>
+    };
+    <span class="code-keyword">return</span> <span class="code-func">request</span>(<span class="code-string">"POST"</span>, API.BASE + API.PROJECT_CREATE, { 
+        data: payload 
+    });
+};
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤4: 查看待办 -->
+            <div class="timeline-item">
+                <div class="step-number">4</div>
+                <div class="step-header">
+                    <span class="step-icon">📋</span>
+                    <span class="step-title">查看和管理待办事项</span>
+                    <span class="step-type manual">用户操作</span>
+                </div>
+                <div class="step-desc">
+                    在页面左侧，你可以看到所有待办事项列表。
+                    可以筛选、搜索、排序你的任务。
+                </div>
+                
+                <div class="user-actions">
+                    <div class="user-actions-title">👆 你可以进行的操作：</div>
+                    <ul class="action-list">
+                        <li>在搜索框输入关键词筛选待办</li>
+                        <li>点击待办标题查看详情</li>
+                        <li>勾选完成状态</li>
+                        <li>拖拽调整待办顺序</li>
+                        <li>点击链接打开相关资源</li>
+                    </ul>
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 涉及的功能方法：</div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/todo/update</span>
+                        <span class="api-func">→ 更新待办状态/内容</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/todo/reorder</span>
+                        <span class="api-func">→ 保存拖拽排序</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/open/link (本地)</span>
+                        <span class="api-func">→ 打开外部链接</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤5: 创建待办 -->
+            <div class="timeline-item">
+                <div class="step-number">5</div>
+                <div class="step-header">
+                    <span class="step-icon">✏️</span>
+                    <span class="step-title">创建新待办</span>
+                    <span class="step-type manual">用户操作</span>
+                </div>
+                <div class="step-desc">
+                    为项目或日常工作创建待办任务，可以设置截止日期、分配给团队成员。
+                </div>
+                
+                <div class="user-actions">
+                    <div class="user-actions-title">👆 操作步骤：</div>
+                    <ul class="action-list">
+                        <li>点击"新建待办"按钮</li>
+                        <li>填写待办标题</li>
+                        <li>选择截止日期</li>
+                        <li>分配给负责人（可选）</li>
+                        <li>添加标签分类</li>
+                        <li>添加相关链接（可选）</li>
+                        <li>填写备注</li>
+                        <li>点击保存</li>
+                    </ul>
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 调用的接口：</div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/todo/create</span>
+                        <span class="api-func">→ 创建新待办</span>
+                    </div>
+                </div>
+                
+                <div class="code-section">
+                    <div class="code-title">💻 AppContext 中的对应代码：</div>
+                    <div class="code-block">
+<span class="code-keyword">const</span> <span class="code-func">createTodoV2</span> = (values) => {
+    <span class="code-keyword">const</span> payload = {
+        title: values.title,
+        due_date: values.due_date,        <span class="code-comment">// "2024-01-15"</span>
+        comment: values.comment,
+        tags: values.tags,                <span class="code-comment">// ["紧急", "重要"]</span>
+        link: values.link,                <span class="code-comment">// 相关链接</span>
+        assignee_ids: values.assignee_ids, <span class="code-comment">// ["zhangsan"]</span>
+        operator_id: userId
+    };
+    <span class="code-keyword">return</span> <span class="code-func">request</span>(<span class="code-string">"POST"</span>, API.BASE + API.TODO_V2.CREATE, { 
+        data: payload 
+    });
+};
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤6: 编辑和删除 -->
+            <div class="timeline-item">
+                <div class="step-number">6</div>
+                <div class="step-header">
+                    <span class="step-icon">📝</span>
+                    <span class="step-title">编辑或删除项目/待办</span>
+                    <span class="step-type manual">用户操作</span>
+                </div>
+                <div class="step-desc">
+                    随时修改项目或待办的信息，或删除不需要的条目。
+                </div>
+                
+                <div class="user-actions">
+                    <div class="user-actions-title">👆 你可以进行的操作：</div>
+                    <ul class="action-list">
+                        <li>点击编辑按钮修改项目/待办信息</li>
+                        <li>修改标题、备注、标签等内容</li>
+                        <li>点击删除按钮移除项目/待办</li>
+                    </ul>
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 调用的接口：</div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/project/editProjectMeta</span>
+                        <span class="api-func">→ 编辑项目</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/project/deleteProject</span>
+                        <span class="api-func">→ 删除项目</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/todo/update</span>
+                        <span class="api-func">→ 编辑待办</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/todo/delete</span>
+                        <span class="api-func">→ 删除待办</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤7: 使用快捷链接 -->
+            <div class="timeline-item">
+                <div class="step-number">7</div>
+                <div class="step-header">
+                    <span class="step-icon">🔗</span>
+                    <span class="step-title">使用快捷链接</span>
+                    <span class="step-type manual">用户操作</span>
+                </div>
+                <div class="step-desc">
+                    点击常用系统链接，快速访问其他业务系统。
+                </div>
+                
+                <div class="user-actions">
+                    <div class="user-actions-title">👆 操作步骤：</div>
+                    <ul class="action-list">
+                        <li>在搜索栏下方找到快捷链接区域</li>
+                        <li>点击想要访问的系统链接</li>
+                        <li>系统会通过本地客户端打开链接</li>
+                    </ul>
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 调用的接口：</div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-path">/open/link (本地服务)</span>
+                        <span class="api-func">→ 打开外部链接</span>
+                    </div>
+                </div>
+                
+                <div class="tip-box">
+                    <div class="tip-title">💡 为什么需要本地服务打开链接？</div>
+                    <div class="tip-content">
+                        因为某些内部系统需要在特定浏览器或环境中打开，通过本地客户端（端口7175）
+                        可以确保链接在正确的应用程序中打开，而不是在当前浏览器标签页中。
+                    </div>
+                </div>
+            </div>
+
+            <!-- 步骤8: 实时同步 -->
+            <div class="timeline-item">
+                <div class="step-number">8</div>
+                <div class="step-header">
+                    <span class="step-icon">🔄</span>
+                    <span class="step-title">实时同步（后台自动）</span>
+                    <span class="step-type auto">自动执行</span>
+                </div>
+                <div class="step-desc">
+                    当你或其他用户修改数据时，页面会自动刷新显示最新内容，无需手动刷新。
+                </div>
+                
+                <div class="api-calls">
+                    <div class="api-calls-title">🔧 涉及的功能：</div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-path">/sse/stream</span>
+                        <span class="api-func">→ SSE 长连接持续监听</span>
+                    </div>
+                </div>
+                
+                <div class="ui-preview">
+                    <div class="ui-preview-title">🔄 实时同步场景示例：</div>
+                    <div class="mock-ui">
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            <div style="background: #e3f2fd; padding: 12px; border-radius: 8px;">
+                                <strong>10:00</strong> 用户A 创建了项目 "新项目X"
+                            </div>
+                            <div style="background: #e8f5e9; padding: 12px; border-radius: 8px;">
+                                <strong>10:00</strong> 你的页面自动刷新，显示 "新项目X"
+                            </div>
+                            <div style="background: #e3f2fd; padding: 12px; border-radius: 8px;">
+                                <strong>10:05</strong> 用户B 完成了待办 "代码审查"
+                            </div>
+                            <div style="background: #e8f5e9; padding: 12px; border-radius: 8px;">
+                                <strong>10:05</strong> 你的页面自动更新，该待办显示为已完成
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tip-box">
+                    <div class="tip-title">💡 SSE 是什么？</div>
+                    <div class="tip-content">
+                        SSE（Server-Sent Events）是一种服务器向浏览器推送实时数据的技术。
+                        与 WebSocket 不同，SSE 是单向的（服务器→客户端），适合用于接收通知和更新。
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 总结 -->
+        <div style="background: white; border-radius: 16px; padding: 30px; margin-top: 40px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+            <h2 style="color: #1a1a2e; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                <span>📚</span>
+                <span>总结：AppContext 的作用</span>
+            </h2>
+            <div style="color: #555; line-height: 1.8; font-size: 1.05em;">
+                <p style="margin-bottom: 15px;">
+                    <strong>AppContext.js 是整个应用的数据中心</strong>，它：
+                </p>
+                <ul style="margin-left: 20px; margin-bottom: 15px;">
+                    <li>管理所有与服务器通信的 API 接口</li>
+                    <li>维护全局状态（用户信息、项目列表、待办事项等）</li>
+                    <li>提供业务方法供组件调用（创建、编辑、删除等）</li>
+                    <li>处理实时数据同步（SSE）</li>
+                    <li>统一管理 API 配置和请求逻辑</li>
+                </ul>
+                <p>
+                    所有组件都通过 <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 4px;">useContext(AppContext)</code> 
+                    来获取数据和调用方法，实现组件间的数据共享和状态管理。
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
