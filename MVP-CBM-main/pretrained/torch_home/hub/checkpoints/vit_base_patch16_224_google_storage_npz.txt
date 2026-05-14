@@ -1,0 +1,26 @@
+用途
+====
+timm ViT 权重的备用下载项。
+
+模型名
+======
+vit_base_patch16_224.augreg_in21k_ft_in1k
+
+真实文件名
+==========
+B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0--imagenet2012-steps_20k-lr_0.01-res_224.npz
+
+直接下载地址
+============
+https://storage.googleapis.com/vit_models/augreg/B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0--imagenet2012-steps_20k-lr_0.01-res_224.npz
+
+建议放置位置
+============
+./pretrained/torch_home/hub/checkpoints/
+
+注意
+====
+当前项目调用的是 timm.create_model("vit_base_patch16_224", pretrained=True)。
+在 timm 0.9.2 下，它通常优先走 HuggingFace Hub。
+
+这个 Google Storage 文件只是备用清单项，不是当前最优先准备的缓存。

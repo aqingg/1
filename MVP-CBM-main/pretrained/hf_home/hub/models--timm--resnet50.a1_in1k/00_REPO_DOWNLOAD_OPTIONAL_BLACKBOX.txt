@@ -1,0 +1,32 @@
+用途
+====
+这是 train_blackbox.py 默认使用的 ResNet50 权重。
+如果你只运行 train_mvpcbm.py，可以暂时不准备它。
+
+被哪个文件使用
+==============
+train_blackbox.py
+
+触发下载的代码
+==============
+timm.create_model("resnet50.a1_in1k", pretrained=True, num_classes=config.num_class)
+
+HuggingFace 仓库地址
+===================
+https://huggingface.co/timm/resnet50.a1_in1k
+
+仓库中可能出现的真实文件名
+==========================
+config.json
+model.safetensors
+pytorch_model.bin
+
+直接下载地址
+============
+https://huggingface.co/timm/resnet50.a1_in1k/resolve/main/config.json
+https://huggingface.co/timm/resnet50.a1_in1k/resolve/main/model.safetensors
+https://huggingface.co/timm/resnet50.a1_in1k/resolve/main/pytorch_model.bin
+
+有网机器上的推荐下载命令
+========================
+python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='timm/resnet50.a1_in1k', cache_dir='./pretrained/hf_home/hub')"

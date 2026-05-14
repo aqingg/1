@@ -1,0 +1,12 @@
+真实文件名
+==========
+open_clip_pytorch_model.bin
+
+直接下载地址
+============
+https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224/resolve/main/open_clip_pytorch_model.bin
+
+为什么需要它
+============
+这是 model/mvpcbm.py 使用的 BiomedCLIP 主权重文件。
+文件较大，建议优先使用 snapshot_download 或 warmup 脚本自动下载。

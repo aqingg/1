@@ -1,0 +1,29 @@
+用途
+====
+这是 MVP-CBM 主模型使用的 BiomedCLIP 仓库。
+
+被哪个文件使用
+==============
+model/mvpcbm.py
+
+触发下载的代码
+==============
+create_model_from_pretrained(
+    "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+)
+
+get_tokenizer(
+    "hf-hub:microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224"
+)
+
+HuggingFace 仓库地址
+===================
+https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224
+
+建议缓存位置
+============
+./pretrained/hf_home/hub/models--microsoft--BiomedCLIP-PubMedBERT_256-vit_base_patch16_224/
+
+有网机器上的推荐下载命令
+========================
+python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224', cache_dir='./pretrained/hf_home/hub')"

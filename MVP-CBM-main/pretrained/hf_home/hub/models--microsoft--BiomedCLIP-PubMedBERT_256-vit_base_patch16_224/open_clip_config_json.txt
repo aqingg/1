@@ -1,0 +1,12 @@
+真实文件名
+==========
+open_clip_config.json
+
+直接下载地址
+============
+https://huggingface.co/microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224/resolve/main/open_clip_config.json
+
+为什么需要它
+============
+调用 create_model_from_pretrained("hf-hub:microsoft/...") 时，
+open_clip 会读取这个模型配置文件。
