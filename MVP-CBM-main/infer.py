@@ -1,7 +1,45 @@
-
-# python infer.py -c ./checkpoint/busi/test/best.pth -d busi --data-path ./dataset/busi/ --gpu 1
+# 离线推理命令示例：
+# python infer.py -c ./checkpoint/busi/test/best.pth -d busi --data-path ./dataset/busi/ --gpu 0 -b 16
+#
+# 运行前要求：
+# 1. 已经有训练得到的 best.pth。
+# 2. 数据集目录存在，例如 ./dataset/busi/。
+# 3. 项目根目录下的 pretrained/ 已经包含 BiomedCLIP 和 timm ViT 本地缓存。
+#
+# 运行结果：
+# 当前脚本会保存以下 .npy 文件：
+#   data.npy            推理使用的图像张量
+#   pred_sim.npy        每张图的概念分数/概念相似度
+#   logits.npy          每张图的分类 logits
+#   concept_label.npy   真实概念标签
+#   gt.npy              真实类别标签
+#   pred.npy            预测类别标签
+#
+# 注意：
+# 本脚本会强制使用本地 pretrained/ 缓存，并阻止 HuggingFace/timm/open_clip 联网下载。
+# 如果 pretrained/ 缺少必要文件，脚本会直接报错并停止。
 
 import os
+
+from offline_pretrained import (
+    HF_HOME,
+    HF_HUB,
+    TORCH_HOME,
+    block_network_access,
+    configure_offline_environment,
+    require_train_mvpcbm_pretrained_cache,
+)
+
+os.environ["HF_HOME"] = HF_HOME
+os.environ["HUGGINGFACE_HUB_CACHE"] = HF_HUB
+os.environ["TORCH_HOME"] = TORCH_HOME
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+os.environ["MVP_CBM_ALLOW_NETWORK"] = "0"
+configure_offline_environment()
+block_network_access()
+
 import sys
 import time
 import math
@@ -20,7 +58,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid, save_image
 import matplotlib.pyplot as plt
 import timm
-from dataset.dataset import SkinDataset, cmmdDataset, busiDataset, idridDataset, cmDataset, edemaDataset, nctDataset, siimDataset
+from dataset.dataset import SkinDataset
 from model import mvpcbm
 import utils
 
@@ -29,13 +67,13 @@ DEBUG = False
 
 dataset_dict = {
     'isic2018': SkinDataset,
-    'cmmd': cmmdDataset,
-    'busi': busiDataset,
-    'idrid': idridDataset,
-    'cm': cmDataset,
-    'edema': edemaDataset,
-    'nct': nctDataset,
-    'siim': siimDataset
+    'cmmd': SkinDataset,
+    'busi': SkinDataset,
+    'idrid': SkinDataset,
+    'cm': SkinDataset,
+    'edema': SkinDataset,
+    'nct': SkinDataset,
+    'siim': SkinDataset
 }
 
 
@@ -198,6 +236,7 @@ if __name__ == '__main__':
 
     config.log_path = config.log_path + config.dataset + '/'
     config.cp_path = config.cp_path + config.dataset + '/'
+    require_train_mvpcbm_pretrained_cache()
     
     print('use model:', config.model)
     
