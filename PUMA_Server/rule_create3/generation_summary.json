@@ -1,0 +1,14 @@
+{
+  "catalog": "PUMA_Server\\rule_create3\\tcd08_rule_catalog_example_line39.xlsx",
+  "output": "C:\\Users\\asy6szh\\Desktop\\PMS\\PUMA_Server\\rule_create3\\generated_catalog_rules.json",
+  "backup": "C:\\Users\\asy6szh\\Desktop\\PMS\\PUMA_Server\\rule_create3\\generated_catalog_rules.json.20260525_154653.bak",
+  "summary": {
+    "calibration_scope_rules": 9,
+    "condition_refs": 27,
+    "red_paragraph_rules": 17,
+    "red_paragraph_text_rules": 33,
+    "text_replacements": 73,
+    "changed_top_level_keys": []
+  },
+  "warnings": []
+}
