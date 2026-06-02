@@ -199,6 +199,16 @@
       "Calibration Scope": {
         "not_contains": "PitchOver"
       }
+    },
+    "owner_suffix_epd5_cn": {
+      "owner": {
+        "matches_any": ".*EPD5-CN$"
+      }
+    },
+    "owner_suffix_ms_eab_vm": {
+      "owner": {
+        "matches_any": ".*(MS|EAB)-VM$"
+      }
     }
   },
   "red_paragraph_rules": [

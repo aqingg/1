@@ -191,15 +191,6 @@
           "FSR"
         ],
         "sections": [
-          "3.4"
-        ],
-        "description": "3.4侧碰算法"
-      },
-      {
-        "required_any": [
-          "FSR"
-        ],
-        "sections": [
           "3.3.1"
         ],
         "description": "如果包含 FSR 且 Peripheral Sensor 包含 RCS，则保留 3.3.1 章节",
@@ -265,7 +256,7 @@
       },
       {
         "required_any": [
-          "CrashGuard(SDD)"
+          "SDD"
         ],
         "sections": [
           "3.9"

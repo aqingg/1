@@ -1,6 +1,8 @@
 import getpass
 import json
 import logging
+import shutil
+import tempfile
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -25,8 +27,10 @@ from services.word_sections import (
     replace_red_font_with_black,
     remove_template_instruction_text,
     remove_red_paragraph_groups,
+    remove_red_paragraph_groups_batch,
     remove_word_sections,
     rewrite_red_paragraph_text,
+    rewrite_red_paragraph_text_batch,
     update_tocs_with_word,
 )
 from utils.file_loader import load_folder_mapping
@@ -68,8 +72,15 @@ def _merge_red_paragraph_deletions(red_deletions: list[dict[str, Any]]) -> list[
 
 # 固定收尾处理开关：
 # 如需临时保留模板里的删除提示语/红色字体，把对应值改为 False 即可。
-REMOVE_TEMPLATE_INSTRUCTIONS_ENABLED = False
-REPLACE_RED_FONT_WITH_BLACK_ENABLED = False
+REMOVE_TEMPLATE_INSTRUCTIONS_ENABLED = True
+REPLACE_RED_FONT_WITH_BLACK_ENABLED = True
+# 红转黑白名单：这些章节保留红色，不执行红转黑。
+# 示例：{"4.1"}
+RED_TO_BLACK_SECTION_WHITELIST: set[str] = {"4.1"}
+# 是否把整条文档处理链路放到本地临时目录执行：
+# - True：先在本机 temp 路径处理（含 TOC），最后统一复制到输出目录。
+# - False：直接在输出目录原位置处理。
+PROCESS_ALL_STEPS_IN_LOCAL_TEMP = True
 
 
 def _mapping_by_tag(tag_name: str) -> dict:
@@ -163,10 +174,78 @@ def _load_project_info_from_db(project_id: Optional[int], db: Session) -> dict:
         ) from exc
 
 
+def _load_project_workflow_from_db(project_id: Optional[int], db: Session) -> dict[str, Any]:
+    if not project_id:
+        return {}
+
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail=f"Project not found: {project_id}")
+
+    try:
+        workflow = json.loads(project.projectWorkFlow or "{}")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"projectWorkFlow JSON decode error: {exc}",
+        ) from exc
+
+    return workflow if isinstance(workflow, dict) else {}
+
+
+def _find_task_path(nodes: list[dict[str, Any]], target_task_id: str) -> list[dict[str, Any]] | None:
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+
+        current_path = [node]
+        if node.get("id") == target_task_id:
+            return current_path
+
+        children = node.get("children") or []
+        if isinstance(children, list) and children:
+            child_path = _find_task_path(children, target_task_id)
+            if child_path:
+                return current_path + child_path
+
+    return None
+
+
+def _extract_calibration_parameter(task_name: str) -> str:
+    clean_name = str(task_name or "").strip()
+    if not clean_name:
+        return ""
+
+    if "_" in clean_name:
+        suffix = clean_name.rsplit("_", 1)[-1].strip()
+        if suffix:
+            return suffix
+
+    return clean_name
+
+
+def _resolve_calibration_parameter_from_workflow(workflow: dict[str, Any], task_id: Optional[str]) -> str:
+    if not task_id:
+        return ""
+
+    task_tree = workflow.get("taskTree", [])
+    if not isinstance(task_tree, list) or not task_tree:
+        return ""
+
+    path = _find_task_path(task_tree, task_id)
+    if not path or len(path) < 2:
+        return ""
+
+    parent_task = path[-2]
+    parent_name = str(parent_task.get("taskName") or "").strip()
+    return _extract_calibration_parameter(parent_name)
+
+
 async def generate_tcd08_report(
     *,
     uuid: str,
     project_id: Optional[int],
+    task_id: Optional[str],
     project_info: dict[str, Any],
     author: str,
     report_date: str,
@@ -192,6 +271,17 @@ async def generate_tcd08_report(
         )
 
     resolved_project_info = project_info or _load_project_info_from_db(project_id, db)
+    if not isinstance(resolved_project_info, dict):
+        resolved_project_info = {}
+
+    # 兜底：若前端未传 Owner，但传了 author，则回填到 project_info。
+    # 这样第八章 owner 后缀规则可与文档 Author 保持一致。
+    owner_item = resolved_project_info.get("owner")
+    owner_value = ""
+    if isinstance(owner_item, dict):
+        owner_value = str(owner_item.get("value") or "").strip()
+    if not owner_value and str(author).strip():
+        resolved_project_info["owner"] = {"label": "Owner", "value": str(author).strip()}
     logger.info(
         "[TCD08] Project info loaded. source=%s project_id=%s",
         "request" if project_info else "database",
@@ -200,6 +290,20 @@ async def generate_tcd08_report(
     if resolved_project_info:
         profile_dict = apply_project_info_overrides(profile_dict, resolved_project_info)
         logger.info("[TCD08] Applied project info overrides to PMS profile.")
+
+    calibration_parameter = _resolve_calibration_parameter_from_workflow(
+        _load_project_workflow_from_db(project_id, db),
+        task_id,
+    )
+    if calibration_parameter:
+        profile_dict["CalibrationParameter"] = calibration_parameter
+        logger.info(
+            "[TCD08] Resolved calibration parameter from workflow. task_id=%s value=%s",
+            task_id,
+            calibration_parameter,
+        )
+    else:
+        logger.info("[TCD08] Calibration parameter not resolved from workflow. task_id=%s", task_id)
 
     profile_dict["author"] = (
         author
@@ -245,237 +349,301 @@ async def generate_tcd08_report(
     red_paragraph_text_rewrite_results = []
     instruction_removal_results = []
     color_replacement_results = []
-    for index, template_path in enumerate(template_paths, start=1):
-        template_start = time.perf_counter()
-        logger.info(
-            "[TCD08] (%s/%s) Filling template: %s",
-            index,
-            len(template_paths),
-            template_path,
-        )
-        step_start = time.perf_counter()
-        filled_stream = fill_docx_by_placeholders(profile_dict, template_path)
-        logger.info(
-            "[TCD08] (%s/%s) Placeholder filling took %.2fs.",
-            index,
-            len(template_paths),
-            time.perf_counter() - step_start,
-        )
+    toc_update_warning: str | None = None
+    local_output_pairs: list[tuple[Path, Path]] = []
+    local_runtime_dir = (
+        tempfile.TemporaryDirectory(prefix="puma_tcd08_report_")
+        if PROCESS_ALL_STEPS_IN_LOCAL_TEMP
+        else None
+    )
+    local_runtime_root = Path(local_runtime_dir.name) if local_runtime_dir else None
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_name = f"filled_{template_path.stem}_{timestamp}{template_path.suffix}"
-        output_path = output_dir / output_name
-        step_start = time.perf_counter()
-        with open(output_path, "wb") as output_file:
-            output_file.write(filled_stream.read())
-        logger.info(
-            "[TCD08] (%s/%s) Filled document saved in %.2fs: %s",
-            index,
-            len(template_paths),
-            time.perf_counter() - step_start,
-            output_path,
-        )
+    if local_runtime_root is not None:
+        logger.info("[TCD08] Local temp workflow enabled. temp_root=%s", local_runtime_root)
 
-        for text_rewrite in red_paragraph_text_rewrites:
+    try:
+        for index, template_path in enumerate(template_paths, start=1):
+            template_start = time.perf_counter()
             logger.info(
-                "[TCD08] (%s/%s) Rewriting red paragraph text in section %s group %s.",
+                "[TCD08] (%s/%s) Filling template: %s",
                 index,
                 len(template_paths),
-                text_rewrite["section"],
-                text_rewrite["group"],
+                template_path,
             )
             step_start = time.perf_counter()
-            rewrite_summary = rewrite_red_paragraph_text(
-                output_path,
-                section=text_rewrite["section"],
-                group_index=text_rewrite["group"],
-                replacements=[
-                    (replacement["from"], replacement["to"])
-                    for replacement in text_rewrite["replacements"]
-                ],
-                update_toc=False,
-            )
-            red_paragraph_text_rewrite_results.append(
-                {
-                    "file": str(output_path),
-                    "section": rewrite_summary.section,
-                    "group": rewrite_summary.group_index,
-                    "rule": text_rewrite.get("description", ""),
-                    "replacements_applied": rewrite_summary.replacements_applied,
-                    "before": rewrite_summary.before_text,
-                    "after": rewrite_summary.after_text,
-                }
-            )
+            filled_stream = fill_docx_by_placeholders(profile_dict, template_path)
             logger.info(
-                "[TCD08] (%s/%s) Rewritten red paragraph text in %.2fs. replacements=%s",
+                "[TCD08] (%s/%s) Placeholder filling took %.2fs.",
                 index,
                 len(template_paths),
                 time.perf_counter() - step_start,
-                rewrite_summary.replacements_applied,
             )
 
-        for red_deletion in merged_red_paragraph_deletions:
-            logger.info(
-                "[TCD08] (%s/%s) Removing red paragraph groups %s in section %s.",
-                index,
-                len(template_paths),
-                red_deletion["delete_groups"],
-                red_deletion["section"],
-            )
-            step_start = time.perf_counter()
-            red_summary = remove_red_paragraph_groups(
-                output_path,
-                section=red_deletion["section"],
-                selected_indexes=red_deletion["delete_groups"],
-                update_toc=False,
-            )
-            red_paragraph_delete_results.append(
-                {
-                    "file": str(output_path),
-                    "section": red_summary.section,
-                    "requested_indexes": red_deletion.get("delete_groups", []),
-                    "matched_rules": red_deletion.get("matched_rules", []),
-                    "deleted_indexes": red_summary.deleted_indexes,
-                    "remaining_red_groups": red_summary.remaining_red_groups,
-                    "preview": red_summary.deleted_preview,
-                }
-            )
-            logger.info(
-                "[TCD08] (%s/%s) Removed red paragraph groups %s in %.2fs.",
-                index,
-                len(template_paths),
-                red_summary.deleted_indexes,
-                time.perf_counter() - step_start,
-            )
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_name = f"filled_{template_path.stem}_{timestamp}{template_path.suffix}"
+            output_path = output_dir / output_name
+            working_path = output_path
+            if local_runtime_root is not None:
+                working_path = local_runtime_root / output_name
+                local_output_pairs.append((working_path, output_path))
 
-        if sections_to_delete:
-            logger.info(
-                "[TCD08] (%s/%s) Removing sections after red paragraph processing: %s",
-                index,
-                len(template_paths),
-                sections_to_delete,
-            )
             step_start = time.perf_counter()
-            deleted_sections = remove_word_sections(
-                output_path,
-                sections_to_delete,
-                update_toc=False,
-            )
-            section_delete_results.extend(
-                {
-                    "file": str(output_path),
-                    "section": result.removed_section,
-                    "deleted_xml_nodes": result.deleted_xml_nodes,
-                    "renumbered_paragraphs": result.typed_renumbered_paragraphs,
-                    "preview": result.deleted_preview,
-                }
-                for result in deleted_sections
-            )
+            with open(working_path, "wb") as output_file:
+                output_file.write(filled_stream.read())
             logger.info(
-                "[TCD08] (%s/%s) Removed %s section(s) in %.2fs.",
-                index,
-                len(template_paths),
-                len(deleted_sections),
-                time.perf_counter() - step_start,
-            )
-
-        instruction_replacements_applied = 0
-        if REMOVE_TEMPLATE_INSTRUCTIONS_ENABLED:
-            logger.info(
-                "[TCD08] (%s/%s) Removing template instruction text.",
-                index,
-                len(template_paths),
-            )
-            step_start = time.perf_counter()
-            instruction_summary = remove_template_instruction_text(output_path)
-            instruction_replacements_applied = instruction_summary.replacements_applied
-            instruction_removal_results.append(
-                {
-                    "file": str(output_path),
-                    "instructions": instruction_summary.instructions,
-                    "replacements_applied": instruction_summary.replacements_applied,
-                    "changed_paragraphs": instruction_summary.changed_paragraphs,
-                }
-            )
-            logger.info(
-                "[TCD08] (%s/%s) Removed template instruction text in %.2fs. replacements=%s",
+                "[TCD08] (%s/%s) Filled document saved in %.2fs: %s",
                 index,
                 len(template_paths),
                 time.perf_counter() - step_start,
-                instruction_summary.replacements_applied,
-            )
-        else:
-            logger.info(
-                "[TCD08] (%s/%s) Template instruction removal disabled.",
-                index,
-                len(template_paths),
+                working_path,
             )
 
-        color_changed_runs = 0
-        if REPLACE_RED_FONT_WITH_BLACK_ENABLED:
+            if red_paragraph_text_rewrites:
+                logger.info(
+                    "[TCD08] (%s/%s) Batched red paragraph text rewrite for %s rule(s).",
+                    index,
+                    len(template_paths),
+                    len(red_paragraph_text_rewrites),
+                )
+                step_start = time.perf_counter()
+                rewrite_plans = [
+                    {
+                        "section": text_rewrite["section"],
+                        "group": text_rewrite["group"],
+                        "replacements": [
+                            (replacement["from"], replacement["to"])
+                            for replacement in text_rewrite["replacements"]
+                        ],
+                    }
+                    for text_rewrite in red_paragraph_text_rewrites
+                ]
+                rewrite_summaries = rewrite_red_paragraph_text_batch(
+                    working_path,
+                    plans=rewrite_plans,
+                    update_toc=False,
+                    use_local_temp=False,
+                )
+                for text_rewrite, rewrite_summary in zip(red_paragraph_text_rewrites, rewrite_summaries):
+                    red_paragraph_text_rewrite_results.append(
+                        {
+                            "file": str(output_path),
+                            "section": rewrite_summary.section,
+                            "group": rewrite_summary.group_index,
+                            "rule": text_rewrite.get("description", ""),
+                            "replacements_applied": rewrite_summary.replacements_applied,
+                            "before": rewrite_summary.before_text,
+                            "after": rewrite_summary.after_text,
+                        }
+                    )
+                logger.info(
+                    "[TCD08] (%s/%s) Batched red paragraph text rewrite took %.2fs.",
+                    index,
+                    len(template_paths),
+                    time.perf_counter() - step_start,
+                )
+
+            if merged_red_paragraph_deletions:
+                logger.info(
+                    "[TCD08] (%s/%s) Batched red paragraph deletion for %s section(s).",
+                    index,
+                    len(template_paths),
+                    len(merged_red_paragraph_deletions),
+                )
+                step_start = time.perf_counter()
+                delete_plans = [
+                    {
+                        "section": red_deletion["section"],
+                        "selected_indexes": red_deletion.get("delete_groups", []),
+                    }
+                    for red_deletion in merged_red_paragraph_deletions
+                ]
+                red_summaries = remove_red_paragraph_groups_batch(
+                    working_path,
+                    plans=delete_plans,
+                    update_toc=False,
+                    use_local_temp=False,
+                )
+                deletion_meta = {
+                    str(item.get("section", "")).strip(): item for item in merged_red_paragraph_deletions
+                }
+                for red_summary in red_summaries:
+                    meta = deletion_meta.get(red_summary.section, {})
+                    red_paragraph_delete_results.append(
+                        {
+                            "file": str(output_path),
+                            "section": red_summary.section,
+                            "requested_indexes": meta.get("delete_groups", []),
+                            "matched_rules": meta.get("matched_rules", []),
+                            "deleted_indexes": red_summary.deleted_indexes,
+                            "remaining_red_groups": red_summary.remaining_red_groups,
+                            "preview": red_summary.deleted_preview,
+                        }
+                    )
+                logger.info(
+                    "[TCD08] (%s/%s) Batched red paragraph deletion took %.2fs.",
+                    index,
+                    len(template_paths),
+                    time.perf_counter() - step_start,
+                )
+
+            if sections_to_delete:
+                logger.info(
+                    "[TCD08] (%s/%s) Removing sections after red paragraph processing: %s",
+                    index,
+                    len(template_paths),
+                    sections_to_delete,
+                )
+                step_start = time.perf_counter()
+                deleted_sections = remove_word_sections(
+                    working_path,
+                    sections_to_delete,
+                    update_toc=False,
+                    use_local_temp=False,
+                )
+                section_delete_results.extend(
+                    {
+                        "file": str(output_path),
+                        "section": result.removed_section,
+                        "deleted_xml_nodes": result.deleted_xml_nodes,
+                        "renumbered_paragraphs": result.typed_renumbered_paragraphs,
+                        "preview": result.deleted_preview,
+                    }
+                    for result in deleted_sections
+                )
+                logger.info(
+                    "[TCD08] (%s/%s) Removed %s section(s) in %.2fs.",
+                    index,
+                    len(template_paths),
+                    len(deleted_sections),
+                    time.perf_counter() - step_start,
+                )
+
+            instruction_replacements_applied = 0
+            if REMOVE_TEMPLATE_INSTRUCTIONS_ENABLED:
+                logger.info(
+                    "[TCD08] (%s/%s) Removing template instruction text.",
+                    index,
+                    len(template_paths),
+                )
+                step_start = time.perf_counter()
+                instruction_summary = remove_template_instruction_text(
+                    working_path,
+                    use_local_temp=False,
+                )
+                instruction_replacements_applied = instruction_summary.replacements_applied
+                instruction_removal_results.append(
+                    {
+                        "file": str(output_path),
+                        "instructions": instruction_summary.instructions,
+                        "replacements_applied": instruction_summary.replacements_applied,
+                        "changed_paragraphs": instruction_summary.changed_paragraphs,
+                    }
+                )
+                logger.info(
+                    "[TCD08] (%s/%s) Removed template instruction text in %.2fs. replacements=%s",
+                    index,
+                    len(template_paths),
+                    time.perf_counter() - step_start,
+                    instruction_summary.replacements_applied,
+                )
+            else:
+                logger.info(
+                    "[TCD08] (%s/%s) Template instruction removal disabled.",
+                    index,
+                    len(template_paths),
+                )
+
+            color_changed_runs = 0
+            if REPLACE_RED_FONT_WITH_BLACK_ENABLED:
+                logger.info(
+                    "[TCD08] (%s/%s) Replacing remaining red font with black.",
+                    index,
+                    len(template_paths),
+                )
+                step_start = time.perf_counter()
+                color_summary = replace_red_font_with_black(
+                    working_path,
+                    preserve_sections=RED_TO_BLACK_SECTION_WHITELIST,
+                    use_local_temp=False,
+                )
+                color_changed_runs = color_summary.changed_runs
+                color_replacement_results.append(
+                    {
+                        "file": str(output_path),
+                        "source_colors": color_summary.source_colors,
+                        "target_color": color_summary.target_color,
+                        "changed_runs": color_summary.changed_runs,
+                    }
+                )
+                logger.info(
+                    "[TCD08] (%s/%s) Replaced red font with black in %.2fs. changed_runs=%s",
+                    index,
+                    len(template_paths),
+                    time.perf_counter() - step_start,
+                    color_summary.changed_runs,
+                )
+            else:
+                logger.info(
+                    "[TCD08] (%s/%s) Red-to-black font replacement disabled.",
+                    index,
+                    len(template_paths),
+                )
+
+            if (
+                sections_to_delete
+                or red_paragraph_deletions
+                or red_paragraph_text_rewrites
+                or instruction_replacements_applied
+                or color_changed_runs
+            ):
+                logger.info(
+                    "[TCD08] (%s/%s) Queued document for batched Word TOC update.",
+                    index,
+                    len(template_paths),
+                )
+                toc_update_paths.append(working_path)
+
+            saved_paths.append(str(output_path))
             logger.info(
-                "[TCD08] (%s/%s) Replacing remaining red font with black.",
+                "[TCD08] (%s/%s) Template processing completed in %.2fs.",
                 index,
                 len(template_paths),
+                time.perf_counter() - template_start,
+            )
+
+        if toc_update_paths:
+            logger.info(
+                "[TCD08] Updating Word TOC for %s document(s) in one Word session.",
+                len(toc_update_paths),
             )
             step_start = time.perf_counter()
-            color_summary = replace_red_font_with_black(output_path)
-            color_changed_runs = color_summary.changed_runs
-            color_replacement_results.append(
-                {
-                    "file": str(output_path),
-                    "source_colors": color_summary.source_colors,
-                    "target_color": color_summary.target_color,
-                    "changed_runs": color_summary.changed_runs,
-                }
-            )
+            try:
+                update_tocs_with_word(toc_update_paths)
+                logger.info(
+                    "[TCD08] Batched Word TOC update took %.2fs.",
+                    time.perf_counter() - step_start,
+                )
+            except Exception as exc:
+                # TOC 更新失败不应影响文档生成主流程，降级为告警并继续返回成功。
+                toc_update_warning = str(exc)
+                logger.warning(
+                    "[TCD08] Batched Word TOC update failed but report generation continues. error=%s",
+                    exc,
+                    exc_info=True,
+                )
+
+        if local_output_pairs:
+            step_start = time.perf_counter()
+            for local_path, final_path in local_output_pairs:
+                shutil.copy2(local_path, final_path)
             logger.info(
-                "[TCD08] (%s/%s) Replaced red font with black in %.2fs. changed_runs=%s",
-                index,
-                len(template_paths),
+                "[TCD08] Copied %s local processed document(s) back to output_dir in %.2fs.",
+                len(local_output_pairs),
                 time.perf_counter() - step_start,
-                color_summary.changed_runs,
             )
-        else:
-            logger.info(
-                "[TCD08] (%s/%s) Red-to-black font replacement disabled.",
-                index,
-                len(template_paths),
-            )
-
-        if (
-            sections_to_delete
-            or red_paragraph_deletions
-            or red_paragraph_text_rewrites
-            or instruction_replacements_applied
-            or color_changed_runs
-        ):
-            logger.info(
-                "[TCD08] (%s/%s) Queued document for batched Word TOC update.",
-                index,
-                len(template_paths),
-            )
-            toc_update_paths.append(output_path)
-
-        saved_paths.append(str(output_path))
-        logger.info(
-            "[TCD08] (%s/%s) Template processing completed in %.2fs.",
-            index,
-            len(template_paths),
-            time.perf_counter() - template_start,
-        )
-
-    if toc_update_paths:
-        logger.info(
-            "[TCD08] Updating Word TOC for %s document(s) in one Word session.",
-            len(toc_update_paths),
-        )
-        step_start = time.perf_counter()
-        update_tocs_with_word(toc_update_paths)
-        logger.info(
-            "[TCD08] Batched Word TOC update took %.2fs.",
-            time.perf_counter() - step_start,
-        )
+    finally:
+        if local_runtime_dir is not None:
+            local_runtime_dir.cleanup()
 
     logger.info(
         "[TCD08] Report generation completed in %.2fs. saved_paths=%s",
@@ -492,4 +660,5 @@ async def generate_tcd08_report(
         "red_paragraph_text_rewrites": red_paragraph_text_rewrite_results,
         "instruction_removals": instruction_removal_results,
         "color_replacements": color_replacement_results,
+        "toc_update_warning": toc_update_warning,
     }

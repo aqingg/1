@@ -20,6 +20,10 @@ from services.word.xml_utils import NS, clean_text, element_text, local_name, qn
 logger = logging.getLogger("uvicorn.error")
 
 
+def _same_file(left: Path, right: Path) -> bool:
+    return left.resolve() == right.resolve()
+
+
 def normalize_color(value: str | None) -> str:
     if not value:
         return ""
@@ -114,6 +118,81 @@ class RedParagraphTextRewriteSummary:
     before_text: str
     after_text: str
     replacements_applied: int
+
+
+def rewrite_red_paragraph_text_batch_in_xml(
+    input_docm: Path,
+    output_docm: Path,
+    plans: list[dict[str, object]],
+    red_colors: set[str],
+) -> list[RedParagraphTextRewriteSummary]:
+    """批量执行红色段落组内的局部文字改写，只读写 document.xml 一次。"""
+    if not plans:
+        return []
+
+    with zipfile.ZipFile(input_docm, "r") as archive:
+        document_xml = archive.read("word/document.xml")
+
+    root = ET.fromstring(document_xml)
+    body = root.find("w:body", NS)
+    if body is None:
+        raise RuntimeError("word/document.xml does not contain w:body")
+
+    summaries: list[RedParagraphTextRewriteSummary] = []
+    total_replacements_applied = 0
+
+    for plan in plans:
+        section = str(plan.get("section", "")).strip()
+        group_index = int(plan.get("group", 0))
+        replacements = plan.get("replacements", [])
+        typed_replacements: list[tuple[str, str]] = [
+            (str(old_text), str(new_text)) for old_text, new_text in replacements  # type: ignore[misc]
+        ]
+
+        body_children = list(body)
+        headings = collect_headings(body_children)
+        _, section_start, section_end = find_section_span(headings, section, len(body_children))
+        groups = collect_red_paragraph_groups(body_children, section_start, section_end, red_colors)
+        target_group = next((group for group in groups if group.red_index == group_index), None)
+        if target_group is None:
+            raise RuntimeError(f"Could not find red paragraph group {group_index} in section {section}")
+
+        before_text = target_group.text
+        replacements_applied = 0
+        for red_paragraph in target_group.paragraphs:
+            paragraph = body_children[red_paragraph.body_index]
+            replacements_applied += replace_text_in_paragraph(
+                paragraph,
+                typed_replacements,
+                preferred_colors=red_colors,
+            )
+
+        after_text = clean_text(
+            " ".join(
+                element_text(body_children[red_paragraph.body_index])
+                for red_paragraph in target_group.paragraphs
+            )
+        )
+
+        total_replacements_applied += replacements_applied
+        summaries.append(
+            RedParagraphTextRewriteSummary(
+                section=section,
+                group_index=group_index,
+                before_text=before_text,
+                after_text=after_text,
+                replacements_applied=replacements_applied,
+            )
+        )
+
+    if total_replacements_applied == 0:
+        if not _same_file(input_docm, output_docm):
+            shutil.copy2(input_docm, output_docm)
+    else:
+        updated_document_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        write_zip_with_replacement(input_docm, output_docm, {"word/document.xml": updated_document_xml})
+
+    return summaries
 
 
 def paragraph_text_nodes(paragraph: ET.Element) -> list[ET.Element]:
@@ -352,7 +431,8 @@ def rewrite_red_paragraph_text_in_xml(
             group_index,
             replacements,
         )
-        shutil.copy2(input_docm, output_docm)
+        if not _same_file(input_docm, output_docm):
+            shutil.copy2(input_docm, output_docm)
     else:
         updated_document_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
         write_zip_with_replacement(input_docm, output_docm, {"word/document.xml": updated_document_xml})
@@ -373,6 +453,7 @@ def rewrite_red_paragraph_text(
     replacements: list[tuple[str, str]],
     red_colors: set[str] | None = None,
     update_toc: bool = True,
+    use_local_temp: bool = True,
 ) -> RedParagraphTextRewriteSummary:
     """对外入口：执行红色段落组内的局部文字改写。
 
@@ -383,6 +464,19 @@ def rewrite_red_paragraph_text(
     - 最后把结果复制回原文档路径。
     """
     colors = red_colors or parse_red_colors("FF0000,C00000")
+
+    if not use_local_temp:
+        summary = rewrite_red_paragraph_text_in_xml(
+            input_docm=document_path,
+            output_docm=document_path,
+            section=section,
+            group_index=group_index,
+            replacements=replacements,
+            red_colors=colors,
+        )
+        if update_toc:
+            update_toc_with_word(document_path)
+        return summary
 
     with tempfile.TemporaryDirectory(prefix="puma_tcd08_text_", ignore_cleanup_errors=True) as temp_dir:
         temp_root = Path(temp_dir)
@@ -403,6 +497,53 @@ def rewrite_red_paragraph_text(
         next_path.replace(working_path)
         if update_toc:
             update_toc_with_word(working_path)
-        shutil.copy2(working_path, document_path)
+        if not _same_file(working_path, document_path):
+            shutil.copy2(working_path, document_path)
 
     return summary
+
+
+def rewrite_red_paragraph_text_batch(
+    document_path: Path,
+    plans: list[dict[str, object]],
+    red_colors: set[str] | None = None,
+    update_toc: bool = True,
+    use_local_temp: bool = True,
+) -> list[RedParagraphTextRewriteSummary]:
+    """对外入口：批量执行红色段落组改写，尽量减少 zip 重写次数。"""
+    colors = red_colors or parse_red_colors("FF0000,C00000")
+
+    if not plans:
+        return []
+
+    if not use_local_temp:
+        summaries = rewrite_red_paragraph_text_batch_in_xml(
+            input_docm=document_path,
+            output_docm=document_path,
+            plans=plans,
+            red_colors=colors,
+        )
+        if update_toc:
+            update_toc_with_word(document_path)
+        return summaries
+
+    with tempfile.TemporaryDirectory(prefix="puma_tcd08_text_", ignore_cleanup_errors=True) as temp_dir:
+        temp_root = Path(temp_dir)
+        working_path = temp_root / f"working{document_path.suffix}"
+        next_path = temp_root / f"red_text_rewritten{document_path.suffix}"
+        shutil.copy2(document_path, working_path)
+        logger.info("[TCD08] Using local temp directory for batched red text rewrite: %s", temp_root)
+
+        summaries = rewrite_red_paragraph_text_batch_in_xml(
+            input_docm=working_path,
+            output_docm=next_path,
+            plans=plans,
+            red_colors=colors,
+        )
+        next_path.replace(working_path)
+        if update_toc:
+            update_toc_with_word(working_path)
+        if not _same_file(working_path, document_path):
+            shutil.copy2(working_path, document_path)
+
+    return summaries

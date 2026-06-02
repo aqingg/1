@@ -20,6 +20,8 @@
 - 检查 `Calibration Scope`，如果不包含 `FSR` 或 `IDF`，则删除 `3.2 Front algorithm 正碰算法`。
 - 检查 `Calibration Scope`，如果不包含 `IDF`，则删除 `3.2.2 Integrated collision detection front function (IDF)`。
 - 检查 `Calibration Scope`，如果不包含 `FSR`，则删除 `3.3 Rear algorithm 后碰算法`。
+
+
 - 检查 `Calibration Scope`，如果不包含 `CSABS` 或 `Offzone`，则删除 `3.4 Side algorithm 侧碰算法`。
 - 检查 `Calibration Scope`，如果不包含 `Rose1`、`Rose1+`、`Rose_Angle`、`Rose_Static` 或 `RoseStatic`，则删除 `3.5 Roll over algorithm 侧翻算法`。
 - 检查 `Calibration Scope`，如果不包含 `Rose_Static` 或 `RoseStatic`，则删除 `3.5.1 Static roll-over algorithm`。
@@ -28,6 +30,8 @@
 - 检查 `Calibration Scope`，如果不包含 `IDP`，则删除 `3.7.1 Integrated collision detection pedestrian function`。
 - 检查 `Calibration Scope`，如果不包含 `PCP`，则删除 `3.8 Pre-Crash positioning function`。
 - 检查 `Calibration Scope`，如果不包含 `CrashGuard(SDD)`，则删除 `3.9 Crash-guard algorithm`。
+
+- 检查 `Calibration Scope`，如果包含 `FSR` 且 `Peripheral Sensor` 包含 `RCS`，则保留 `3.3.1` 章节；否则删除 `3.3.1` 章节。
 
 ## 3. 3.2 Front algorithm 内容规则
 
@@ -72,6 +76,7 @@
 - 检查 `Peripheral Sensor`，如果只包含 UFS 且不包含 RCS，则第3、4段中只保留 UFS 描述，删除 RCS 描述。
 - 检查 `Peripheral Sensor`，如果只包含 RCS 且不包含 UFS，则第3、4段中只保留 RCS 描述，删除 UFS 描述。
 - 检查 `Peripheral Sensor`，如果同时包含 UFS 和 RCS，则第3、4段中只保留 RCS 描述，删除 UFS 描述。
+- 检查 `Peripheral Sensor`，如果同时既 UFS 和 RCS，则第3、4段中删除 UFS和RCS 描述。
 - 检查 `Inertial Sensor`，如果不只有 1 个 `SMA`，则保留四，删除三。
 - 检查 `Inertial Sensor`，如果只有 1 个 `SMA`，则保留三，删除四。
 - 如果`Peripheral Sensor`既不包含 UFS 也不包含 RCS，则保留五，否则删除5.
@@ -97,7 +102,7 @@
 ## 6. 3.4 Side algorithm 内容规则
 
 ### 3.4 首段传感器列表
-
+第一个红色段落
 模板原意为：PAS/PPS、UFS-Y、RCS-Y 和中央传感器用来探测侧碰。该句需要根据 `Peripheral Sensor` 自动保留已配置的传感器名称，并删除模板中的编辑提示。
 
 - 检查 `Peripheral Sensor`，如果同时包含 PAS 和 PPS，则保留 PAS 和 PPS 描述。
@@ -107,17 +112,30 @@
 - 检查 `Peripheral Sensor`，如果不包含 UFS-Y，则删除 UFS-Y 相关描述。
 - 检查 `Peripheral Sensor`，如果不包含 RCS-Y，则删除 RCS-Y 相关描述。
 - 检查 `Peripheral Sensor`，如果不包含 UFS 或 RCS，则保留该段其余描述。
-
+-当PAS,PPS、UFS-Y、RCS-Y都不包含的时候，直接删除第一段落。
 ### 3.4 独立传感器确认描述
 
-模板列出三种侧碰确认方式：外围加速度传感器加中央传感器、两个独立外围传感器、中央传感器两个独立通道。该句需要根据 `Peripheral Sensor` 和 `Inertial Sensor` 删除不适用的例子。
 
 
-- 检查 `Peripheral Sensor`，如果不包含 PAS 或不包含 PPS，则删除“两个独立外围传感器”相关描述。
-- 检查 `Peripheral Sensor`，如果同时包含 PAS 和 PPS，则保留“两个独立外围传感器”相关描述，并删除“中央传感器两个独立通道”相关描述。
-- 检查 `Peripheral Sensor`，如果既不包含 PAS 也不包含 PPS，且 `Inertial Sensor` 只有 1 个 `SMAx`，则保留“中央传感器两个独立通道”相关描述。
-- 检查 `Peripheral Sensor`，如果既不包含 PAS 也不包含 PPS，且 `Inertial Sensor` 不只有 1 个 `SMAx`，则删除“中央传感器两个独立通道”相关描述。
-- 删除可选例子后，如果句子只剩空例子或连接词，需要继续清理多余标点和连接词，保证中英文句子可读。
+第二个红色段落。已知原来最后一句话是。
+This could be e.g. a peripheral acceleration sensor and a central sensor, 
+two independent peripheral acceleration sensors,  
+or the two independent sensor channels of the central sensor. 
+这种情况可以是一个外围传感器和一个中央传感器，或者是两个外围传感器，也可以是中央传感器的两个单独的传感器通道。
+
+（1）检查Peripheral sensor配置：如果包含PAS & PPS。
+就保留为This could be e.g. a peripheral acceleration sensor and a central sensor, or two independent peripheral acceleration sensors.
+这种情况可以是一个外围传感器和一个中央传感器，或者是两个外围传感器。
+
+（2）如果PPS 或PAS都不包含，同时Inertial sensor不只有1个SMA*。
+就保留为This could be e.g. the two independent sensor channels of the central sensor. 
+这种情况可以是中央传感器的两个单独的传感器通道。
+
+（3）否则
+就保留为This could be e.g. a peripheral acceleration sensor and a central sensor.
+这种情况可以是一个外围传感器和一个中央传感器。
+
+检查中英文多余标点。
 
 ### 3.5.1 
 检查 Calibration scope，如果包含 Rose_Static，则保留 3.5.1 整章，否则删除
@@ -145,8 +163,8 @@ Sensor configuration 根据Product Category + Inertial sensor + Peripheral senso
 ### 8
 已知本章节有两个段落
 检查owner的后缀，EPD5-CN为中国，MS/EAB-VM为越南。
-如果EPD5-CN则删除第一段，
-如果MS/EAB-VM为则删除第二段。
+如果EPD5-CN则删除第二段，
+如果MS/EAB-VM为则删除第一段。
 
 ## 7. 固定描述句式
 

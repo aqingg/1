@@ -32,8 +32,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # │  └─ history/
 # ==========================================================
 
-#BASE_RUNTIME_DIR = PROJECT_ROOT / "DB"
-BASE_RUNTIME_DIR = PROJECT_ROOT / "DB" / "local_mock_runtime"
+BASE_RUNTIME_DIR = PROJECT_ROOT / "DB"
+#BASE_RUNTIME_DIR = PROJECT_ROOT / "DB" / "local_mock_runtime"
 
 
 # Ensure base runtime directory exists
@@ -46,6 +46,7 @@ BASE_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = BASE_RUNTIME_DIR / "app.db"
 
 DATA_SOURCE_DIR = BASE_RUNTIME_DIR / "data_source"
+CUSTOMER_LOGO_DIR = BASE_RUNTIME_DIR / "Customer_Logo"
 TEMPLATES_DIR = BASE_RUNTIME_DIR / "templates"
 DOWNLOADS_DIR = BASE_RUNTIME_DIR / "downloads"
 LOGS_DIR = BASE_RUNTIME_DIR / "logs"
@@ -57,6 +58,7 @@ HISTORY_DIR = BASE_RUNTIME_DIR / "history"
 
 for _dir in [
     DATA_SOURCE_DIR,
+    CUSTOMER_LOGO_DIR,
     TEMPLATES_DIR,
     DOWNLOADS_DIR,
     LOGS_DIR,

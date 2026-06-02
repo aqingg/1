@@ -19,6 +19,10 @@ from services.word.xml_utils import NS, clean_text, element_text, local_name, qn
 logger = logging.getLogger("uvicorn.error")
 
 
+def _same_file(left: Path, right: Path) -> bool:
+    return left.resolve() == right.resolve()
+
+
 @dataclass
 class RedParagraph:
     """表示某个章节内“含红色文字”的一个段落。
@@ -291,7 +295,8 @@ def delete_red_paragraph_groups_in_xml(
             selected_indexes,
             len(candidates),
         )
-        shutil.copy2(input_docm, output_docm)
+        if not _same_file(input_docm, output_docm):
+            shutil.copy2(input_docm, output_docm)
         return RedParagraphDeleteSummary(section, [], [], len(candidates))
 
     body_indexes = {
@@ -325,12 +330,94 @@ def delete_red_paragraph_groups_in_xml(
     )
 
 
+def delete_red_paragraph_groups_batch_in_xml(
+    input_docm: Path,
+    output_docm: Path,
+    plans: list[dict[str, object]],
+    red_colors: set[str],
+) -> list[RedParagraphDeleteSummary]:
+    """批量删除多个章节的红色段落组，只读写 document.xml 一次。"""
+    if not plans:
+        return []
+
+    with zipfile.ZipFile(input_docm, "r") as archive:
+        document_xml = archive.read("word/document.xml")
+
+    root = ET.fromstring(document_xml)
+    body = root.find("w:body", NS)
+    if body is None:
+        raise RuntimeError("word/document.xml does not contain w:body")
+
+    summaries: list[RedParagraphDeleteSummary] = []
+    deleted_any = False
+
+    for plan in plans:
+        section = str(plan.get("section", "")).strip()
+        selected_indexes = [int(value) for value in plan.get("selected_indexes", [])]  # type: ignore[misc]
+
+        body_children = list(body)
+        headings = collect_headings(body_children)
+        _, section_start, section_end = find_section_span(headings, section, len(body_children))
+        candidates = collect_red_paragraph_groups(body_children, section_start, section_end, red_colors)
+
+        wanted = set(selected_indexes)
+        deleted = [group for group in candidates if group.red_index in wanted]
+        if not deleted:
+            summaries.append(
+                RedParagraphDeleteSummary(
+                    section=section,
+                    deleted_indexes=[],
+                    deleted_preview=[],
+                    remaining_red_groups=len(candidates),
+                )
+            )
+            continue
+
+        body_indexes = {
+            paragraph.body_index
+            for group in deleted
+            for paragraph in group.paragraphs
+        }
+        for body_index in sorted(body_indexes, reverse=True):
+            body.remove(body_children[body_index])
+
+        deleted_any = True
+
+        remaining_children = list(body)
+        headings_after = collect_headings(remaining_children)
+        _, remaining_start, remaining_end = find_section_span(headings_after, section, len(remaining_children))
+        remaining_red_count = len(
+            collect_red_paragraph_groups(remaining_children, remaining_start, remaining_end, red_colors)
+        )
+
+        summaries.append(
+            RedParagraphDeleteSummary(
+                section=section,
+                deleted_indexes=[group.red_index for group in deleted],
+                deleted_preview=[
+                    group.text[:160] + "..." if len(group.text) > 160 else group.text
+                    for group in deleted
+                ],
+                remaining_red_groups=remaining_red_count,
+            )
+        )
+
+    if deleted_any:
+        updated_document_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        write_zip_with_replacement(input_docm, output_docm, {"word/document.xml": updated_document_xml})
+    elif not _same_file(input_docm, output_docm):
+        shutil.copy2(input_docm, output_docm)
+
+    return summaries
+
+
 def remove_red_paragraph_groups(
     document_path: Path,
     section: str,
     selected_indexes: list[int],
     red_colors: set[str] | None = None,
     update_toc: bool = True,
+    use_local_temp: bool = True,
 ) -> RedParagraphDeleteSummary:
     """对外入口：删除红色段落组。
 
@@ -341,6 +428,18 @@ def remove_red_paragraph_groups(
     - 最后把结果复制回原文档路径。
     """
     colors = red_colors or parse_red_colors("FF0000,C00000")
+
+    if not use_local_temp:
+        summary = delete_red_paragraph_groups_in_xml(
+            input_docm=document_path,
+            output_docm=document_path,
+            section=section,
+            selected_indexes=selected_indexes,
+            red_colors=colors,
+        )
+        if update_toc:
+            update_toc_with_word(document_path)
+        return summary
 
     with tempfile.TemporaryDirectory(prefix="puma_tcd08_red_", ignore_cleanup_errors=True) as temp_dir:
         temp_root = Path(temp_dir)
@@ -360,6 +459,53 @@ def remove_red_paragraph_groups(
         next_path.replace(working_path)
         if update_toc:
             update_toc_with_word(working_path)
-        shutil.copy2(working_path, document_path)
+        if not _same_file(working_path, document_path):
+            shutil.copy2(working_path, document_path)
 
     return summary
+
+
+def remove_red_paragraph_groups_batch(
+    document_path: Path,
+    plans: list[dict[str, object]],
+    red_colors: set[str] | None = None,
+    update_toc: bool = True,
+    use_local_temp: bool = True,
+) -> list[RedParagraphDeleteSummary]:
+    """对外入口：批量删除红色段落组，尽量减少 zip 重写次数。"""
+    colors = red_colors or parse_red_colors("FF0000,C00000")
+
+    if not plans:
+        return []
+
+    if not use_local_temp:
+        summaries = delete_red_paragraph_groups_batch_in_xml(
+            input_docm=document_path,
+            output_docm=document_path,
+            plans=plans,
+            red_colors=colors,
+        )
+        if update_toc:
+            update_toc_with_word(document_path)
+        return summaries
+
+    with tempfile.TemporaryDirectory(prefix="puma_tcd08_red_", ignore_cleanup_errors=True) as temp_dir:
+        temp_root = Path(temp_dir)
+        working_path = temp_root / f"working{document_path.suffix}"
+        next_path = temp_root / f"red_paragraphs_removed{document_path.suffix}"
+        shutil.copy2(document_path, working_path)
+        logger.info("[TCD08] Using local temp directory for batched red paragraph removal: %s", temp_root)
+
+        summaries = delete_red_paragraph_groups_batch_in_xml(
+            input_docm=working_path,
+            output_docm=next_path,
+            plans=plans,
+            red_colors=colors,
+        )
+        next_path.replace(working_path)
+        if update_toc:
+            update_toc_with_word(working_path)
+        if not _same_file(working_path, document_path):
+            shutil.copy2(working_path, document_path)
+
+    return summaries

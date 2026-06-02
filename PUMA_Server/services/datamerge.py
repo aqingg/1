@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import logging
 import re
 import sys
 import zipfile
@@ -26,6 +27,11 @@ else:
     raise RuntimeError(f"Vendored custom python-docx not found: {CUSTOM_DOCX_SRC}")
 
 import docx  # type: ignore[reportMissingImports]  # noqa: E402
+
+from services.word.logo import replace_logo_placeholders
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 GATEWAY_KEY = "PN9rSrBi6770yG35WSoN25yAPiWaqbBS"
@@ -337,8 +343,51 @@ def fill_docx_by_placeholders(
     formatted_profile = _prepare_profile_for_filling(profile_dict)
     placeholder_pattern = re.compile(r"<\s*PMS\.([^>]+?)\s*>")
 
+    def normalize_header_text(value: str) -> str:
+        return re.sub(r"\s+", " ", (value or "").strip()).lower()
+
+    def header_index_map(header_row) -> Dict[str, int]:
+        mapping: Dict[str, int] = {}
+        for index, cell in enumerate(header_row.cells):
+            key = normalize_header_text(cell.text)
+            if key and key not in mapping:
+                mapping[key] = index
+        return mapping
+
+    def set_cell_text(row, column_index: int, text: str) -> None:
+        if column_index >= len(row.cells):
+            return
+        row.cells[column_index].text = text
+
+    def normalize_document_change_table(document) -> None:
+        required_headers = [
+            "no",
+            "document",
+            "author",
+            "description of change",
+            "version",
+            "date",
+        ]
+
+        for table in document.tables:
+            if not table.rows:
+                continue
+
+            header_map = header_index_map(table.rows[0])
+            if not all(header in header_map for header in required_headers):
+                continue
+
+            # 保留模板里已经写好的第一条变更记录，只清理多余行。
+            while len(table.rows) > 2:
+                table._tbl.remove(table.rows[-1]._tr)
+            break
+
+    normalize_document_change_table(document)
+
     def replacer(match: re.Match) -> str:
         combined_key = match.group(1).strip()
+        if combined_key.lower() == "logo":
+            return "<PMS.logo>"
         if "-" in combined_key:
             keys = [key.strip() for key in combined_key.split("-")]
             value_parts = [formatted_profile.get(key, "N/A") for key in keys]
@@ -370,6 +419,10 @@ def fill_docx_by_placeholders(
         substitute_in_container(section.footer)
         substitute_in_container(section.first_page_footer)
         substitute_in_container(section.even_page_footer)
+
+    logo_replacements = replace_logo_placeholders(document, formatted_profile)
+    if logo_replacements:
+        logger.info("[TCD08] Replaced %s logo placeholder(s).", logo_replacements)
 
     stream = io.BytesIO()
     document.save(stream)

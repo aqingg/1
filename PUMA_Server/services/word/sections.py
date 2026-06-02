@@ -25,6 +25,10 @@ from services.word.xml_utils import NS, clean_text, element_text, local_name, se
 logger = logging.getLogger("uvicorn.error")
 
 
+def _same_file(left: Path, right: Path) -> bool:
+    return left.resolve() == right.resolve()
+
+
 @dataclass
 class SectionDeleteSummary:
     """记录一次章节删除的结果，方便 API 返回和服务端日志排查。
@@ -209,6 +213,7 @@ def remove_word_sections(
     document_path: Path,
     section_numbers: list[str],
     update_toc: bool = True,
+    use_local_temp: bool = True,
 ) -> list[SectionDeleteSummary]:
     """对外入口：删除指定章节。
 
@@ -222,6 +227,12 @@ def remove_word_sections(
     """
     if not section_numbers:
         return []
+
+    if not use_local_temp:
+        summaries = delete_sections_in_xml(document_path, document_path, section_numbers)
+        if update_toc:
+            update_toc_with_word(document_path)
+        return summaries
 
     with tempfile.TemporaryDirectory(prefix="puma_tcd08_", ignore_cleanup_errors=True) as temp_dir:
         temp_root = Path(temp_dir)
@@ -238,6 +249,7 @@ def remove_word_sections(
 
         if update_toc:
             update_toc_with_word(working_path)
-        shutil.copy2(working_path, document_path)
+        if not _same_file(working_path, document_path):
+            shutil.copy2(working_path, document_path)
 
     return summaries

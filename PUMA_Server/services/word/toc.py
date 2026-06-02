@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import gc
+import logging
 from pathlib import Path
 from typing import Iterable
 
-from services.word.package import read_macro_support_members, restore_zip_members
+from services.word.package import MacroSupportMembers, read_macro_support_members, restore_zip_members
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 try:
@@ -37,7 +41,7 @@ def update_document_toc_with_application(
     word,
     docm_path: Path,
     mode: str = "toc_only",
-) -> None:
+) -> MacroSupportMembers:
     """用已经创建好的 Word.Application 更新单个文档。
 
     mode:
@@ -66,9 +70,13 @@ def update_document_toc_with_application(
         document.Save()
     finally:
         if document is not None:
-            document.Close(False)
+            try:
+                document.Close(False)
+            except Exception as exc:
+                # Word COM 在某些环境会在 Close 阶段断连，记录并继续，避免影响主流程。
+                logger.warning("[TCD08] Failed to close Word document: %s", exc)
 
-    restore_zip_members(docm_path, preserved_macro_members)
+    return preserved_macro_members
 
 
 def update_toc_with_word(docm_path: Path, mode: str = "toc_only") -> None:
@@ -81,13 +89,26 @@ def update_toc_with_word(docm_path: Path, mode: str = "toc_only") -> None:
         return
 
     word = None
+    preserved_macro_members = None
+    processing_error: BaseException | None = None
     try:
         word = create_word_application()
-        update_document_toc_with_application(word, docm_path, mode=mode)
+        preserved_macro_members = update_document_toc_with_application(word, docm_path, mode=mode)
+    except BaseException as exc:
+        processing_error = exc
     finally:
         if word is not None:
-            word.Quit()
+            try:
+                word.Quit()
+            except Exception as exc:
+                logger.warning("[TCD08] Failed to quit Word application: %s", exc)
         gc.collect()
+
+    if preserved_macro_members is not None:
+        restore_zip_members(docm_path, preserved_macro_members)
+
+    if processing_error is not None:
+        raise processing_error.with_traceback(processing_error.__traceback__)
 
 
 def update_tocs_with_word(docm_paths: Iterable[Path], mode: str = "toc_only") -> None:
@@ -102,11 +123,25 @@ def update_tocs_with_word(docm_paths: Iterable[Path], mode: str = "toc_only") ->
         return
 
     word = None
+    preserved_macro_members_list: list[tuple[Path, MacroSupportMembers]] = []
+    processing_error: BaseException | None = None
     try:
         word = create_word_application()
         for docm_path in paths:
-            update_document_toc_with_application(word, docm_path, mode=mode)
+            preserved_macro_members = update_document_toc_with_application(word, docm_path, mode=mode)
+            preserved_macro_members_list.append((docm_path, preserved_macro_members))
+    except BaseException as exc:
+        processing_error = exc
     finally:
         if word is not None:
-            word.Quit()
+            try:
+                word.Quit()
+            except Exception as exc:
+                logger.warning("[TCD08] Failed to quit Word application: %s", exc)
         gc.collect()
+
+    for docm_path, preserved_macro_members in preserved_macro_members_list:
+        restore_zip_members(docm_path, preserved_macro_members)
+
+    if processing_error is not None:
+        raise processing_error.with_traceback(processing_error.__traceback__)

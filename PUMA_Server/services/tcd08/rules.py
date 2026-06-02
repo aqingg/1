@@ -8,7 +8,7 @@ from services.datamerge import flatten_project_info
 
 
 TCD08_SECTION_RULES_PATH = (
-    Path(__file__).resolve().parents[2] / "config" / "tcd08_section_rules.json"
+    Path(__file__).resolve().parents[2] / "config" / "generated_catalog_rules.json"
 )
 
 
@@ -90,24 +90,61 @@ def drop_descendant_sections(section_numbers: list[str]) -> list[str]:
     return selected_sections
 
 
+def _resolve_rule_ref_names(rule: dict, key: str) -> list[str]:
+    value = rule.get(key)
+    if isinstance(value, str):
+        return [item.strip() for item in re.split(r"[+|,，/\\]+", value) if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _section_delete_rule_matches(
+    rule: dict,
+    form_values: dict[str, str],
+    all_rules: dict,
+    selected_scopes: set[str],
+) -> bool:
+    required_any = {
+        normalize_scope(scope)
+        for scope in rule.get("required_any", [])
+        if str(scope).strip()
+    }
+    if required_any and selected_scopes.isdisjoint(required_any):
+        return True
+
+    required_all = {
+        normalize_scope(scope)
+        for scope in rule.get("required_all", [])
+        if str(scope).strip()
+    }
+    if required_all and not required_all.issubset(selected_scopes):
+        return True
+
+    when_any_ref = _resolve_rule_ref_names(rule, "when_any_ref")
+    if when_any_ref and any(
+        rule_conditions_match({"when_ref": ref_name}, form_values, all_rules)
+        for ref_name in when_any_ref
+    ):
+        return True
+
+    return False
+
+
 def sections_to_delete_by_calibration_scope(project_info: dict) -> list[str]:
     """根据 Calibration Scope 和 JSON 规则，计算需要删除的章节号。"""
     if not project_info:
         return []
 
-    rules = load_tcd08_section_rules().get("calibration_scope", {})
+    all_rules = load_tcd08_section_rules()
+    rules = all_rules.get("calibration_scope", {})
     form_values = flatten_project_info(project_info)
     field_label = rules.get("field_label", "Calibration Scope")
     selected_scopes = split_scope_values(form_values.get(field_label, ""))
 
     sections_to_delete: list[str] = []
     for rule in rules.get("delete_when_missing", []):
-        required_scopes = {
-            normalize_scope(scope)
-            for scope in rule.get("required_any", [])
-            if str(scope).strip()
-        }
-        if not required_scopes or not selected_scopes.isdisjoint(required_scopes):
+        if not _section_delete_rule_matches(rule, form_values, all_rules, selected_scopes):
             continue
 
         sections_to_delete.extend(
@@ -175,6 +212,25 @@ def as_condition_values(expected: object) -> list[object]:
     if isinstance(expected, list):
         return expected
     return [expected]
+
+
+def get_form_value(form_values: dict[str, str], field_label: str) -> str:
+    """按字段名取值，支持大小写与常见别名。"""
+    if field_label in form_values:
+        return form_values[field_label]
+
+    normalized = str(field_label).strip().lower()
+    for key, value in form_values.items():
+        if str(key).strip().lower() == normalized:
+            return value
+
+    # 兼容 owner 规则字段与前端标签 Owner 的历史差异。
+    if normalized == "owner":
+        for alias in ("Owner", "owner", "Author", "author"):
+            if alias in form_values:
+                return form_values[alias]
+
+    return ""
 
 
 def field_condition_matches(raw_value: str, condition: dict) -> bool:
@@ -298,7 +354,7 @@ def rule_conditions_match(rule: dict, form_values: dict[str, str], all_rules: di
 
     return all(
         isinstance(condition, dict)
-        and field_condition_matches(form_values.get(field_label, ""), condition)
+        and field_condition_matches(get_form_value(form_values, field_label), condition)
         for field_label, condition in conditions.items()
     )
 

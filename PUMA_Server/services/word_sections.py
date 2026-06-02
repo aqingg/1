@@ -68,11 +68,13 @@ from services.word.red_paragraphs import (
     collect_red_paragraph_groups,
     collect_red_paragraphs,
     delete_red_paragraph_groups_in_xml,
+    delete_red_paragraph_groups_batch_in_xml,
     has_cjk_text,
     normalize_color,
     parse_red_colors,
     red_text_in_paragraph,
     remove_red_paragraph_groups,
+    remove_red_paragraph_groups_batch,
     run_text,
 )
 # 整个章节删除相关：
@@ -92,6 +94,8 @@ from services.word.text_rewrite import (
     replace_text_in_paragraph,
     replace_text_span,
     rewrite_red_paragraph_text,
+    rewrite_red_paragraph_text_batch,
+    rewrite_red_paragraph_text_batch_in_xml,
     rewrite_red_paragraph_text_in_xml,
 )
 # Word COM 更新目录相关：
@@ -135,6 +139,7 @@ __all__ = [
     "collect_red_paragraph_groups",
     "collect_red_paragraphs",
     "delete_red_paragraph_groups_in_xml",
+    "delete_red_paragraph_groups_batch_in_xml",
     "delete_section_in_xml",
     "delete_sections_in_xml",
     "element_text",
@@ -156,6 +161,7 @@ __all__ = [
     "replace_font_colors_in_xml",
     "replace_red_font_with_black",
     "remove_red_paragraph_groups",
+    "remove_red_paragraph_groups_batch",
     "remove_template_instruction_text",
     "remove_template_instruction_text_in_xml",
     "remove_word_sections",
@@ -164,6 +170,8 @@ __all__ = [
     "replace_text_span",
     "restore_zip_members",
     "rewrite_red_paragraph_text",
+    "rewrite_red_paragraph_text_batch",
+    "rewrite_red_paragraph_text_batch_in_xml",
     "rewrite_red_paragraph_text_in_xml",
     "run_text",
     "section_level",

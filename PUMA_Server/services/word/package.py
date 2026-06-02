@@ -1,13 +1,77 @@
 from __future__ import annotations
 
 import os
+import logging
 import shutil
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from lxml import etree as ET  # type: ignore[reportMissingImports]
+
+
+logger = logging.getLogger("uvicorn.error")
+
+
+def _unlink_with_retry(path: Path, *, raise_on_final_error: bool = False) -> None:
+    """Best-effort file deletion with retry for transient Windows/DFS locks.
+
+    Why this exists:
+    - On Windows network shares, antivirus/indexing/SMB delays can keep a just-used
+      temp file locked for a short period.
+    - Cleanup failures must not hide the real upstream exception unless explicitly requested.
+    """
+    retry_delays = [0.1, 0.2, 0.4, 0.8, 1.2]
+    max_attempts = len(retry_delays) + 1
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except FileNotFoundError:
+            return
+        except (PermissionError, OSError) as exc:
+            winerror = getattr(exc, "winerror", None)
+            is_lock_error = isinstance(exc, PermissionError) or winerror in {5, 32}
+            if (not is_lock_error) or attempt == max_attempts:
+                if raise_on_final_error:
+                    raise
+                logger.warning(
+                    "[TCD08] Temp cleanup skipped after %d attempts for %s: %s",
+                    attempt,
+                    path,
+                    exc,
+                )
+                return
+            time.sleep(retry_delays[attempt - 1])
+
+
+def _replace_with_retry(source: Path, target: Path) -> None:
+    """Replace target with source and retry on transient file locks.
+
+    Uses os.replace for atomic same-filesystem replacement.
+    """
+    retry_delays = [0.1, 0.2, 0.4, 0.8, 1.2]
+    max_attempts = len(retry_delays) + 1
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            os.replace(source, target)
+            return
+        except (PermissionError, OSError) as exc:
+            winerror = getattr(exc, "winerror", None)
+            is_lock_error = isinstance(exc, PermissionError) or winerror in {5, 32}
+            if (not is_lock_error) or attempt == max_attempts:
+                raise
+            logger.warning(
+                "[TCD08] Zip replace retry %d/%d due to file lock: %s",
+                attempt,
+                max_attempts,
+                exc,
+            )
+            time.sleep(retry_delays[attempt - 1])
 
 
 # .docx/.docm 文件本质是 zip 包。
@@ -84,7 +148,7 @@ def write_zip_with_replacement(source: Path, output: Path, replacements: dict[st
     # 注意：上层 wrapper 已经把文档复制到本地 temp，所以这里通常不是公盘路径。
     fd, temp_name = tempfile.mkstemp(suffix=output.suffix, dir=str(output.parent))
     os.close(fd)
-    Path(temp_name).unlink(missing_ok=True)
+    _unlink_with_retry(Path(temp_name), raise_on_final_error=True)
 
     try:
         with zipfile.ZipFile(temp_name, "w") as zout:
@@ -108,11 +172,12 @@ def write_zip_with_replacement(source: Path, output: Path, replacements: dict[st
             ):
                 raise RuntimeError("Macro project missing after writing.")
 
-        shutil.move(temp_name, output)
+        _replace_with_retry(Path(temp_name), output)
     finally:
         # 正常情况下 temp_name 已经被 move 走。
         # 如果中途异常，finally 会尽量清理临时文件。
-        Path(temp_name).unlink(missing_ok=True)
+        # 注意：清理失败不能覆盖主异常，否则会丢失真实故障点。
+        _unlink_with_retry(Path(temp_name), raise_on_final_error=False)
 
 
 def read_macro_support_members(package_path: Path) -> MacroSupportMembers:
@@ -294,4 +359,21 @@ def restore_zip_members(package_path: Path, preserved_members: MacroSupportMembe
             if "word/vbaProject.bin" in preserved_members.parts and "word/vbaProject.bin" not in test_zip.namelist():
                 raise RuntimeError("Macro project missing after Word TOC update.")
 
-        shutil.copy2(temp_path, package_path)
+        retry_delays = [0.1, 0.2, 0.4, 0.8, 1.2]
+        max_attempts = len(retry_delays) + 1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                shutil.copy2(temp_path, package_path)
+                break
+            except (PermissionError, OSError) as exc:
+                winerror = getattr(exc, "winerror", None)
+                is_lock_error = isinstance(exc, PermissionError) or winerror == 32
+                if (not is_lock_error) or attempt == max_attempts:
+                    raise
+                logger.warning(
+                    "[TCD08] Macro restore copy retry %d/%d due to file lock: %s",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                time.sleep(retry_delays[attempt - 1])

@@ -188,25 +188,6 @@
       },
       {
         "required_any": [
-          "FSR"
-        ],
-        "sections": [
-          "3.4"
-        ],
-        "description": "3.4侧碰算法"
-      },
-      {
-        "required_any": [
-          "FSR"
-        ],
-        "sections": [
-          "3.3.1"
-        ],
-        "description": "如果包含 FSR 且 Peripheral Sensor 包含 RCS，则保留 3.3.1 章节",
-        "when_any_ref": "peripheral_no_rcs"
-      },
-      {
-        "required_any": [
           "Rose1",
           "Rose1+",
           "Rose_Angle",
@@ -262,15 +243,6 @@
           "3.8"
         ],
         "description": "Pre-Crash positioning function"
-      },
-      {
-        "required_any": [
-          "CrashGuard(SDD)"
-        ],
-        "sections": [
-          "3.9"
-        ],
-        "description": "Crash-guard algorithm"
       }
     ]
   },
@@ -366,18 +338,6 @@
       "when": {}
     },
     {
-      "description": "3.4 首段传感器列表 | 同时不包含 PAS、PPS、UFS-Y、RCS-Y | 直接删除第一红字段落",
-      "section": "3.4",
-      "delete_groups": [
-        1
-      ],
-      "when_ref": [
-        "peripheral_no_pas_no_pps",
-        "peripheral_no_ufsy",
-        "peripheral_no_rcsy"
-      ]
-    },
-    {
       "description": "3.5.1 static table | no SMI8 and no SMI9 | 删除第一段",
       "section": "3.5.1",
       "delete_groups": [
@@ -437,7 +397,7 @@
       ]
     },
     {
-      "description": "8 owner 后缀段落 | 后缀包含 EPD5-CN | 删除第二段",
+      "description": "8 owner 后缀段落 | 后缀包含 EPD5-CN | 删除第一段",
       "section": "8",
       "delete_groups": [
         2
@@ -445,7 +405,7 @@
       "when_ref": "owner_suffix_epd5_cn"
     },
     {
-      "description": "8 owner 后缀段落 | 后缀包含 MS/EAB-VM | 删除第一段",
+      "description": "8 owner 后缀段落 | 后缀包含 MS/EAB-VM | 删除第二段",
       "section": "8",
       "delete_groups": [
         1
@@ -815,43 +775,79 @@
       "replacements": [
         {
           "from": "RCS-Y and the central sensors are used",
-          "to": "and the central sensors are used"
+          "to": "the central sensors are used"
         },
         {
           "from": "后碰传感器Y通道，及中央传感器",
-          "to": "及中央传感器"
+          "to": "中央传感器"
         }
       ],
       "when_ref": "peripheral_no_rcsy"
     },
     {
-      "description": "3.4 独立传感器确认描述 | 同时包含 PAS 和 PPS | 保留“一个外围传感器和一个中央传感器，或者是两个外围传感器”句式",
+      "description": "3.4 独立传感器确认描述 | 不包含 PAS | 删除“两个独立外围传感器”描述",
       "section": "3.4",
       "group": 2,
       "replacements": [
         {
-          "from": "This could be e.g. a peripheral acceleration sensor and a central sensor, two independent peripheral acceleration sensors, or the two independent sensor channels of the central sensor.",
-          "to": "This could be e.g. a peripheral acceleration sensor and a central sensor, or two independent peripheral acceleration sensors."
+          "from": "two independent peripheral acceleration sensors,",
+          "to": ""
         },
         {
-          "from": "这种情况可以是一个外围传感器和一个中央传感器，或者是两个外围传感器，也可以是中央传感器的两个单独的传感器通道。",
-          "to": "这种情况可以是一个外围传感器和一个中央传感器，或者是两个外围传感器。"
+          "from": "，或者是两个外围传感器，",
+          "to": "，"
+        }
+      ],
+      "when_ref": "peripheral_no_pas"
+    },
+    {
+      "description": "3.4 独立传感器确认描述 | 不包含 PPS | 删除“两个独立外围传感器”描述",
+      "section": "3.4",
+      "group": 2,
+      "replacements": [
+        {
+          "from": "two independent peripheral acceleration sensors,",
+          "to": ""
+        },
+        {
+          "from": "，或者是两个外围传感器，",
+          "to": "，"
+        }
+      ],
+      "when_ref": "peripheral_no_pps"
+    },
+    {
+      "description": "3.4 独立传感器确认描述 | 同时包含 PAS 和 PPS | 删除 central-sensor-two-channel 描述",
+      "section": "3.4",
+      "group": 2,
+      "replacements": [
+        {
+          "from": "or the two independent sensor channels of the central sensor.",
+          "to": ""
+        },
+        {
+          "from": "，也可以是中央传感器的两个单独的传感器通道。",
+          "to": "。"
         }
       ],
       "when_ref": "peripheral_has_pas_and_pps"
     },
     {
-      "description": "3.4 独立传感器确认描述 | 既不包含 PAS 也不包含 PPS，且不只有 1 个 SMAx | 只保留“中央传感器的两个单独的传感器通道”句式",
+      "description": "3.4 独立传感器确认描述 | 既不包含 PAS 也不包含 PPS，且不只有 1 个 SMAx | 删除 central-sensor-two-channel 描述",
       "section": "3.4",
       "group": 2,
       "replacements": [
         {
-          "from": "This could be e.g. a peripheral acceleration sensor and a central sensor, two independent peripheral acceleration sensors, or the two independent sensor channels of the central sensor.",
-          "to": "This could be e.g. the two independent sensor channels of the central sensor."
+          "from": "or the two independent sensor channels of the central sensor.",
+          "to": ""
         },
         {
-          "from": "这种情况可以是一个外围传感器和一个中央传感器，或者是两个外围传感器，也可以是中央传感器的两个单独的传感器通道。",
-          "to": "这种情况可以是中央传感器的两个单独的传感器通道。"
+          "from": "，也可以是中央传感器的两个单独的传感器通道。",
+          "to": "。"
+        },
+        {
+          "from": "a peripheral acceleration sensor and a central sensor, 侧碰算法",
+          "to": "a peripheral acceleration sensor and a central sensor. 侧碰算法"
         }
       ],
       "when_ref": [
@@ -860,19 +856,36 @@
       ]
     },
     {
-      "description": "3.4 独立传感器确认描述 | 其他情况 | 只保留“一个外围传感器和一个中央传感器”句式",
+      "description": "3.4 独立传感器确认描述 | 不包含 PAS | 清理删除后残留连接词和标点",
       "section": "3.4",
       "group": 2,
       "replacements": [
         {
-          "from": "This could be e.g. a peripheral acceleration sensor and a central sensor, two independent peripheral acceleration sensors, or the two independent sensor channels of the central sensor.",
-          "to": "This could be e.g. a peripheral acceleration sensor and a central sensor."
+          "from": "This could be e.g. or the two independent sensor channels of the central sensor.",
+          "to": "This could be e.g. the two independent sensor channels of the central sensor."
         },
         {
-          "from": "这种情况可以是一个外围传感器和一个中央传感器，或者是两个外围传感器，也可以是中央传感器的两个单独的传感器通道。",
-          "to": "这种情况可以是一个外围传感器和一个中央传感器。"
+          "from": "这种情况可以，也可以是中央传感器的两个单独的传感器通道。",
+          "to": "这种情况可以是中央传感器的两个单独的传感器通道。"
         }
-      ]
+      ],
+      "when_ref": "peripheral_no_pas"
+    },
+    {
+      "description": "3.4 独立传感器确认描述 | 不包含 PPS | 清理删除后残留连接词和标点",
+      "section": "3.4",
+      "group": 2,
+      "replacements": [
+        {
+          "from": "This could be e.g. or the two independent sensor channels of the central sensor.",
+          "to": "This could be e.g. the two independent sensor channels of the central sensor."
+        },
+        {
+          "from": "这种情况可以，也可以是中央传感器的两个单独的传感器通道。",
+          "to": "这种情况可以是中央传感器的两个单独的传感器通道。"
+        }
+      ],
+      "when_ref": "peripheral_no_pps"
     },
     {
       "description": "4.1 采样变量前半句 | 不包含 EPP | 删除 and pedestrian Protection 及中文 和行人保护",
@@ -957,6 +970,44 @@
       ],
       "when_ref": [
         "peripheral_has_ufs",
+        "peripheral_no_pas"
+      ]
+    },
+    {
+      "description": "3.4 独立传感器确认描述 | 只包含 PAS 且不包含 PPS | 删除 central-sensor-two-channel 描述",
+      "section": "3.4",
+      "group": 2,
+      "replacements": [
+        {
+          "from": "or the two independent sensor channels of the central sensor.",
+          "to": ""
+        },
+        {
+          "from": "??????????????????????",
+          "to": "?"
+        }
+      ],
+      "when_ref": [
+        "peripheral_has_pas",
+        "peripheral_no_pps"
+      ]
+    },
+    {
+      "description": "3.4 独立传感器确认描述 | 只包含 PPS 且不包含 PAS | 删除 central-sensor-two-channel 描述",
+      "section": "3.4",
+      "group": 2,
+      "replacements": [
+        {
+          "from": "or the two independent sensor channels of the central sensor.",
+          "to": ""
+        },
+        {
+          "from": "??????????????????????",
+          "to": "?"
+        }
+      ],
+      "when_ref": [
+        "peripheral_has_pps",
         "peripheral_no_pas"
       ]
     }

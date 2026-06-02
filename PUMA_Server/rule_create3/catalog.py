@@ -99,8 +99,16 @@ def read_rules_catalog(
         raise CatalogGenerationError(f"Workbook must contain sheet '{CATALOG_SHEET}': {path}")
 
     catalog_rows = sheet_rows_to_dicts(catalog_matrix, header_row_index=0)
+    used_refs: set[str] = set()
     calibration_scope = parse_section_delete_sheet(sheets)
     templates, replacements = parse_tech_sheet(sheets.get(TECH_SHEET, []))
+
+    if calibration_scope:
+        for rule in calibration_scope.get("delete_when_missing", []):
+            for ref_name in section_rule_ref_names(rule):
+                if ref_name:
+                    used_refs.add(ref_name)
+
     templates_by_catalog_id = {
         int(template["catalog_id"]): template
         for template in templates.values()
@@ -111,7 +119,6 @@ def read_rules_catalog(
         "red_paragraph_rules": [],
         "red_paragraph_text_rules": [],
     }
-    used_refs: set[str] = set()
 
     for row_index, raw_row in enumerate(catalog_rows, start=2):
         row = normalize_catalog_row(raw_row)
@@ -267,6 +274,12 @@ def parse_section_delete_sheet(sheets: dict[str, list[list[Any]]]) -> dict[str, 
             "scope关键词",
             "触发关键词",
         )
+        when_any_ref_raw = row_value(
+            row,
+            "when_any_ref",
+            "条件引用(任一)",
+            "任一条件引用",
+        )
         sections_raw = row_value(
             row,
             "sections",
@@ -278,9 +291,10 @@ def parse_section_delete_sheet(sheets: dict[str, list[list[Any]]]) -> dict[str, 
         description = row_value(row, "description", "说明", "规则说明", "处理结果")
 
         required_any = split_tokens(required_any_raw)
+        when_any_ref = parse_when_ref(when_any_ref_raw) if when_any_ref_raw else None
         sections = split_sections(sections_raw)
 
-        if not required_any:
+        if not required_any and not when_any_ref:
             raise CatalogGenerationError(f"章节删除 row {row_index}: required_any/关键词 is required")
         if not sections:
             raise CatalogGenerationError(f"章节删除 row {row_index}: sections/删除章节 is required")
@@ -296,6 +310,7 @@ def parse_section_delete_sheet(sheets: dict[str, list[list[Any]]]) -> dict[str, 
                 "required_any": required_any,
                 "sections": sections,
                 "description": description,
+                **({"when_any_ref": when_any_ref} if when_any_ref else {}),
             }
         )
 
@@ -464,6 +479,17 @@ def ref_names(when_ref: str | list[str]) -> list[str]:
     if isinstance(when_ref, str):
         return [when_ref] if when_ref else []
     return [str(item).strip() for item in when_ref if str(item).strip()]
+
+
+def section_rule_ref_names(rule: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for key in ("when_ref", "when_any_ref"):
+        value = rule.get(key)
+        if isinstance(value, str):
+            names.extend(ref_names(value))
+        elif isinstance(value, list):
+            names.extend(ref_names(value))
+    return names
 
 
 def parse_delete_groups(value: str, *, label: str) -> list[int]:

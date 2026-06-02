@@ -15,6 +15,7 @@ class TCD08FillRequest(BaseModel):
     uuid: str
     projectid: Optional[int] = None
     projectId: Optional[int] = None
+    taskId: Optional[str] = None
     project_info: Dict[str, Any] = Field(default_factory=dict)
     author: str = ""
     report_date: str = ""
@@ -43,6 +44,7 @@ async def fill_tcd08_report(request: TCD08FillRequest, db: Session = Depends(get
     return await generate_tcd08_report(
         uuid=request.uuid,
         project_id=request.projectId or request.projectid,
+        task_id=request.taskId,
         project_info=request.project_info,
         author=request.author,
         report_date=request.report_date,
