@@ -1,0 +1,648 @@
+Sub InsertResultFile()
+    Dim dlg As fileDialog
+    Dim excelApp As Object
+    Dim excelWorkbook As Object
+    Dim excelSheet As Object
+    Dim wordApp As Object
+    Dim wordDoc As Object
+    Dim selectedFile As String
+    Dim tempFilePath As String
+    Dim tempFileName As String
+    Dim chartObj As Object
+    
+    Set dlg = Application.fileDialog(msoFileDialogFilePicker)
+    With dlg
+        .Title = "Open Simulation Result File"
+        .Filters.Clear
+        .Filters.Add "Excel File", "*.xls; *.xlsx; *.xlsm", 1
+        If .Show = -1 Then
+            selectedFile = .SelectedItems(1)
+        Else
+            Exit Sub
+        End If
+    End With
+    
+    Set excelApp = CreateObject("Excel.Application")
+    excelApp.Visible = False
+    
+    Set excelWorkbook = excelApp.Workbooks.Open(selectedFile)
+    
+    Set excelSheet = excelWorkbook.Sheets("Summary")
+    
+    Dim usedRange As Object
+    Set usedRange = excelSheet.usedRange
+    
+    tempFilePath = Environ$("temp") & "\"
+    tempFileName = "temp_sheet_image.png"
+    
+    usedRange.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    Set wordDoc = ThisDocument
+    wordDoc.Application.Selection.MoveDown unit:=wdParagraph, Count:=1
+    wordDoc.Application.Selection.Delete
+    wordDoc.Application.Selection.Paste
+    
+    excelWorkbook.Close False
+    excelApp.Quit
+    Set excelSheet = Nothing
+    Set excelWorkbook = Nothing
+    Set excelApp = Nothing
+    Set wordDoc = Nothing
+    Set wordApp = Nothing
+'
+
+End Sub
+Sub InsertMisuse()
+    Dim dlg As fileDialog
+    Dim excelApp As Object
+    Dim excelWorkbook As Object
+    Dim excelSheet As Object
+    Dim wordApp As Object
+    Dim wordDoc As Object
+    Dim selectedFile As String
+    Dim tempFilePath As String
+    Dim tempFileName As String
+    Dim chartObj As Object
+    Dim tableTitleLine As Integer
+    
+    keywords = Array("Margin Summary", "Margin_Summary")
+    Set dlg = Application.fileDialog(msoFileDialogFilePicker)
+    With dlg
+        .Title = "Open Simulation Result File"
+        .Filters.Clear
+        .Filters.Add "Excel File", "*.xls; *.xlsx; *.xlsm", 1
+        If .Show = -1 Then
+            selectedFile = .SelectedItems(1)
+        Else
+            Exit Sub
+        End If
+    End With
+    
+    Set excelApp = CreateObject("Excel.Application")
+    excelApp.Visible = False
+    
+    Set excelWorkbook = excelApp.Workbooks.Open(selectedFile)
+    UserForm1.ListBox1.Clear
+    For Each excelSheet1 In excelWorkbook.Worksheets
+        For Each keyword In keywords
+            If InStr(1, excelSheet1.Name, keyword, vbTextCompare) > 0 And excelSheet1.Visible = True Then
+                UserForm1.ListBox1.AddItem (excelSheet1.Name)
+                Exit For
+            End If
+        Next keyword
+    Next excelSheet1
+    
+    UserForm1.Show
+    Call Load(UserForm1)
+    Dim sheetName As String
+    sheetName = UserForm1.ListBox1.List(UserForm1.ListBox1.ListIndex)
+    Dim emptyCellCount As Integer
+    Dim LastUsedRow As Long
+    Dim lastUsedColumn As Long
+    Dim TempLastUsedRow As Long
+    Dim findTempLastUsedRow As Boolean
+    Dim findUsedRange As Boolean
+    Dim emptyLine As Integer
+    Set excelSheet = excelWorkbook.Worksheets(sheetName)
+    Set excelApp = CreateObject("Excel.Application")
+    excelApp.Visible = False
+    findTempLastUsedRow = False
+    findUsedRange = False
+    LastUsedRow = -1
+    emptyLine = 5
+    For Each Cell In excelSheet.Columns(2).Cells
+        If Cell.Row > 3000 Then
+            MsgBox "Cannot find channel overview sheet,please add picture mannually."
+            Exit Sub
+        End If
+        If Cell.Value = "" Then
+            emptyCellCount = emptyCellCount + 1
+            If emptyCellCount = 1 Then
+                findTempLastUsedRow = True
+                TempLastUsedRow = Cell.Row - 1
+            End If
+        Else
+            emptyCellCount = 0
+            findTempLastUsedRow = False
+        End If
+        If findTempLastUsedRow = True And emptyCellCount >= emptyLine Then
+            LastUsedRow = TempLastUsedRow
+            findLastUsedRow = True
+            Exit For
+        End If
+    Next Cell
+    If LastUsedRow <> -1 Then
+        For Each Cell In excelSheet.Rows(LastUsedRow).Cells
+            If Cell.Column > 1000 Then
+                MsgBox "Cannot find channel overview sheet,please add picture mannually."
+                Exit Sub
+            End If
+            If Cell.Value = "" Then
+                emptyCellCount = emptyCellCount + 1
+            If emptyCellCount = 1 Then
+                findTempLastUsedColumn = True
+                TempLastUsedColumn = Cell.Column - 1
+            End If
+        Else
+            emptyCellCount = 0
+            findTempLastUsedColumn = False
+        End If
+        If findTempLastUsedColumn = True And emptyCellCount >= emptyLine Then
+            lastUsedColumn = TempLastUsedColumn
+            findLastUsedColumn = True
+            Exit For
+        End If
+                
+        Next Cell
+    End If
+    
+    Dim usedRange As Object
+    Set EndCell = excelSheet.Cells(LastUsedRow, lastUsedColumn)
+    Set usedRange = excelSheet.Range("A1", EndCell)
+    
+    tempFilePath = Environ$("temp") & "\"
+    tempFileName = "temp_sheet_image.png"
+    
+    usedRange.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    Set wordDoc = ThisDocument
+    wordDoc.Application.Selection.MoveDown unit:=wdParagraph, Count:=1
+    wordDoc.Application.Selection.Delete
+    wordDoc.Application.Selection.Paste
+    
+    excelWorkbook.Close False
+    excelApp.Quit
+    Set excelSheet = Nothing
+    Set excelWorkbook = Nothing
+    Set excelApp = Nothing
+    Set wordDoc = Nothing
+    Set wordApp = Nothing
+
+End Sub
+Sub InsertChannelOverview()
+'
+' InsertChannelOverview Macro
+'    Dim dlg As FileDialog
+    Dim excelApp As Object
+    Dim excelWorkbook As Object
+    Dim excelSheet As Object
+    Dim wordApp As Object
+    Dim wordDoc As Object
+    Dim selectedFile As String
+    Dim tempFilePath As String
+    Dim tempFileName As String
+    Dim chartObj As Object
+    Dim lastUsedColumn As Long
+    Dim tableTitleLine As Integer
+    Dim LastUsedRow As Long
+    Dim EndCell, ss As Range
+    Dim keywords() As Variant
+    Dim keyword As Variant
+    Dim matchedKeyword As Variant
+    
+    keywords = Array("Front", "Side", "Rear", "Rollover", "Pep")
+    Set dlg = Application.fileDialog(msoFileDialogFilePicker)
+    With dlg
+        .Title = "Open Simulation Result File"
+        .Filters.Clear
+        .Filters.Add "Excel File", "*.xls; *.xlsx; *.xlsm", 1
+        If .Show = -1 Then
+            selectedFile = .SelectedItems(1)
+        Else
+            Exit Sub
+        End If
+    End With
+    
+    Set excelApp = CreateObject("Excel.Application")
+    excelApp.Visible = False
+    
+    Set excelWorkbook = excelApp.Workbooks.Open(selectedFile)
+    Set wordDoc = ThisDocument
+    wordDoc.Application.Selection.MoveDown unit:=wdParagraph, Count:=1
+    Selection.HomeKey
+    Selection.TypeParagraph
+    Selection.TypeParagraph
+    wordDoc.Application.Selection.MoveUp unit:=wdParagraph, Count:=2
+    For Each excelSheet In excelWorkbook.Worksheets
+        containsKeyword = False
+        For Each keyword In keywords
+            If InStr(1, excelSheet.Name, keyword, vbTextCompare) > 0 And excelSheet.Visible = True Then
+                containsKeyword = True
+                matchedKeyword = keyword
+                Exit For
+            End If
+        Next keyword
+
+        If containsKeyword Then
+            Dim findUsedRange As Boolean
+            Dim emptyCellCount As Integer
+            Dim findTempLastUsedRow As Boolean
+            Dim findLastUsedColumn As Boolean
+            Dim TempLastUsedRow As Integer
+            emptyCellCount = 0
+            findUsedRange = False
+            findTempLastUsedRow = False
+            'lastUsedRow = excelSheet.usedRange.Rows(excelSheet.usedRange.Rows.Count).Row
+            For Each Cell In excelSheet.Columns(2).Cells
+                If Cell.Value = "No." Then
+                    tableTitleLine = Cell.Row
+                    For Each Cell2 In excelSheet.Rows(tableTitleLine).Cells
+                        If Cell2.Value = "Comments" Then
+                            lastUsedColumn = Cell2.Column - 1
+                            findLastUsedColumn = True
+                            Exit For
+                        End If
+                    Next Cell2
+                End If
+                If findLastUsedColumn = True Then
+                    If Cell.Value = "" Then
+                        emptyCellCount = emptyCellCount + 1
+                        If emptyCellCount = 1 Then
+                            findTempLastUsedRow = True
+                            TempLastUsedRow = Cell.Row - 1
+                        End If
+                    Else
+                        emptyCellCount = 0
+                        findTempLastUsedRow = False
+                    End If
+                    If findTempLastUsedRow = True And emptyCellCount >= 3 Then
+                        LastUsedRow = TempLastUsedRow
+                        findUsedRange = True
+                        Exit For
+                    End If
+                End If
+            Next Cell
+            If findUsedRange = False Then
+                MsgBox "Cannot find channel overview sheet,please add picture mannually."
+                Exit Sub
+            End If
+            Dim usedRange As Object
+            Set EndCell = excelSheet.Cells(LastUsedRow, lastUsedColumn)
+            Set usedRange = excelSheet.Range("B2", EndCell)
+            tempFilePath = Environ$("temp") & "\"
+            tempFileName = "temp_sheet_image.png"
+            Selection.Font.Name = "Bosch Office Sans"
+            Selection.Font.Size = 10
+            Selection.Font.Bold = True
+            Selection.Font.Color = wdColorBlack
+            Selection.TypeText Text:=matchedKeyword + " Channel Overview"
+            Selection.EndKey
+            Selection.TypeParagraph
+            usedRange.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+            wordDoc.Application.Selection.Paste
+            Selection.EndKey
+            Selection.TypeParagraph
+            Selection.TypeParagraph
+            
+
+        End If
+    Next excelSheet
+    
+    
+    excelWorkbook.Close False
+    excelApp.Quit
+    Set excelSheet = Nothing
+    Set excelWorkbook = Nothing
+    Set excelApp = Nothing
+    Set wordDoc = Nothing
+    Set wordApp = Nothing
+'
+
+End Sub
+
+Sub InsertSingleChannelOverview()
+    Dim excelApp As Object
+    Dim excelWorkbook As Object
+    Dim excelSheet1 As Object
+    Dim excelSheet As Object
+    Dim wordApp As Object
+    Dim wordDoc As Object
+    Dim selectedFile As String
+    Dim tempFilePath As String
+    Dim tempFileName As String
+    Dim chartObj As Object
+    Dim lastUsedColumn As Long
+    Dim tableTitleLine As Integer
+    Dim LastUsedRow As Long
+    Dim EndCell, ss As Range
+    Dim keywords() As Variant
+    Dim keyword As Variant
+    Dim matchedKeyword As Variant
+    
+    keywords = Array("Front", "Side", "Rear", "Rollover", "Pep", "IDF", "IDP")
+    Set dlg = Application.fileDialog(msoFileDialogFilePicker)
+    With dlg
+        .Title = "Open Simulation Result File"
+        .Filters.Clear
+        .Filters.Add "Excel File", "*.xls; *.xlsx; *.xlsm", 1
+        If .Show = -1 Then
+            selectedFile = .SelectedItems(1)
+        Else
+            Exit Sub
+        End If
+    End With
+    
+    Set excelApp = CreateObject("Excel.Application")
+    excelApp.Visible = False
+    
+    Set excelWorkbook = excelApp.Workbooks.Open(selectedFile)
+    UserForm1.ListBox1.Clear
+    For Each excelSheet1 In excelWorkbook.Worksheets
+        For Each keyword In keywords
+            If InStr(1, excelSheet1.Name, keyword, vbTextCompare) > 0 And excelSheet1.Visible = True Then
+                UserForm1.ListBox1.AddItem (excelSheet1.Name)
+                Exit For
+            End If
+        Next keyword
+    Next excelSheet1
+    
+    UserForm1.Show
+    Call Load(UserForm1)
+    Dim sheetName As String
+    sheetName = UserForm1.ListBox1.List(UserForm1.ListBox1.ListIndex)
+    Set excelSheet = excelWorkbook.Worksheets(sheetName)
+    Dim findUsedRange As Boolean
+    Dim emptyCellCount As Integer
+    Dim findTempLastUsedRow As Boolean
+    Dim findLastUsedColumn As Boolean
+    Dim TempLastUsedRow As Integer
+    Dim emptyLine As Integer
+    emptyLine = 5
+    emptyCellCount = 0
+    findUsedRange = False
+    findTempLastUsedRow = False
+    Dim i As Integer
+    Dim CrashCodeCell As Range
+    For Each Cell In excelSheet.Columns(2).Cells
+        If Cell.Row > 500 Then
+            MsgBox "Cannot find channel overview sheet,please add picture mannually."
+            Exit Sub
+        End If
+        If Cell.Value = "No." Then
+            tableTitleLine = Cell.Row
+            For Each Cell2 In excelSheet.Rows(tableTitleLine).Cells
+                If Cell2.Value = "Comments" Then
+                    lastUsedColumn = Cell2.Column - 1
+                    findLastUsedColumn = True
+                    Exit For
+                End If
+            Next Cell2
+        End If
+        If findLastUsedColumn = True Then
+            If excelSheet.Cells(Cell.Row, 3) = "" Then
+                emptyCellCount = emptyCellCount + 1
+                If emptyCellCount = 1 Then
+                    findTempLastUsedRow = True
+                    TempLastUsedRow = Cell.Row - 1
+                End If
+            Else
+                emptyCellCount = 0
+                findTempLastUsedRow = False
+            End If
+            If findTempLastUsedRow = True And emptyCellCount >= emptyLine Then
+                LastUsedRow = TempLastUsedRow
+                findUsedRange = True
+                Exit For
+            End If
+        End If
+                
+    Next Cell
+    If findLastUsedColumn = False Then
+        MsgBox "Cannot find channel overview sheet,please add picture mannually."
+        Exit Sub
+    End If
+    Dim usedRange As Object
+    Set EndCell = excelSheet.Cells(LastUsedRow, lastUsedColumn)
+    Set usedRange = excelSheet.Range("B2", EndCell)
+    tempFilePath = Environ$("temp") & "\"
+    tempFileName = "temp_sheet_image.png"
+    Set wordDoc = ThisDocument
+    wordDoc.Application.Selection.MoveDown unit:=wdParagraph, Count:=1
+    usedRange.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    wordDoc.Application.Selection.Delete
+    wordDoc.Application.Selection.Paste
+    excelWorkbook.Close False
+    excelApp.Quit
+    Set excelSheet = Nothing
+    Set excelWorkbook = Nothing
+    Set excelApp = Nothing
+    Set wordDoc = Nothing
+    Set wordApp = Nothing
+End Sub
+Sub ReadZipFiles()
+    Dim zipfile As Variant
+    Dim zipPaths As Collection
+    Dim objShell As Object
+    Dim objFolder As Object
+    Dim objItems As Object
+    Dim objItem As Variant
+    Dim zipitem As Variant
+    Dim fileDialog As fileDialog
+    Dim doc As Document
+    Dim Para As Paragraph
+    Dim para1 As Range
+    Dim part1Count As Integer
+    Dim part2Count As Integer
+    Dim part3Count As Integer
+    Dim keywords As Variant
+    Dim specficikeywords As Variant
+    Dim keyword As String
+    Dim foundKeyword As Boolean
+    Dim i As Integer
+    Dim fileList As Collection
+    Dim fileList_2nd As Collection
+    Dim fileList_3rd As Collection
+    
+    ' Predefined list of keywords
+    UFSkeywords = Array("UFS", "ufs", "Ufs")
+    keywords = Array("DF", "Def", "def") ' Add more keywords as needed
+    specficikeywords = Array("Pps", "pps", "PPS", "IDF", "IDP") ' Add more keywords as needed
+    ' Create a file dialog to select a ZIP file
+    Set fileDialog = Application.fileDialog(msoFileDialogFilePicker)
+    
+    ' Set file dialog title and filter (ZIP files only)
+    Set zipPaths = New Collection
+    With fileDialog
+        .Title = "Please select a ZIP file"
+        .Filters.Clear
+        .Filters.Add "ZIP Files", "*.zip"
+        .AllowMultiSelect = True
+        ' Show the file dialog
+        If .Show = -1 Then
+            'Get zip file list selected
+            For Each zipitem In .SelectedItems
+                zipPaths.Add zipitem
+            Next zipitem
+        Else
+            Exit Sub
+        End If
+    End With
+
+    ' Create Shell object
+    On Error Resume Next
+    Set objShell = CreateObject("Shell.Application")
+    If objShell Is Nothing Then
+        MsgBox "Failed to create Shell.Application object. Please check system settings."
+        Exit Sub
+    End If
+    On Error GoTo 0
+    
+    ' Initial zip filelist
+    Set fileList = New Collection
+    
+    ' Go through all zip files selected
+    For Each zipfile In zipPaths
+        ' Try to open the ZIP file
+        On Error Resume Next
+        Set objFolder = objShell.Namespace(zipfile)
+        On Error GoTo 0
+        
+        ' Check if folder object is successfully created
+        If objFolder Is Nothing Then
+            MsgBox "Unable to open the ZIP file. Please check the file path or if the file is corrupted: " & zipfile
+            Exit Sub
+        End If
+        
+        ' Get the Items collection from the ZIP file
+        Set objItems = objFolder.Items
+    
+        ' Check if Items collection is empty
+        If objItems Is Nothing Then
+            MsgBox "Failed to read the ZIP file contents. Items object is empty."
+            Exit Sub
+        End If
+        ' Get zip files added to Filelist from a certain zip file
+        Call ListFilesInZip(objFolder, fileList)
+        
+    Next zipfile
+        
+    ' Insert a new paragraph in the active Word document to display the list
+    Set doc = ActiveDocument
+    Set para1 = Selection.Range
+    
+    ' Part 1: Files not containing any keyword from the predefined list
+    part1Count = 0
+    Set para1 = Selection.Paragraphs(1).Range
+    Set fileList_2nd = New Collection
+    If doc.Bookmarks.Exists("tempSimulationResult") Then
+        doc.Bookmarks("tempSimulationResult").Range.Delete
+    End If
+    For Each zipfile In zipPaths
+        para1.InsertAfter Dir(zipfile) & vbCrLf
+    Next zipfile
+    
+    'para1.InsertAfter Dir(zi) & vbCrLf
+    Selection.Range.HighlightColorIndex = wdYellow
+    para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0)
+    Set para1 = para1.Paragraphs.Add.Range
+    para1.InsertAfter "Please check if the result file number and classification is correct. Don't forget to attach the zipped simulation result in .pdf calibration report."
+    para1.HighlightColorIndex = wdYellow
+    Set para1 = para1.Paragraphs.Add.Range
+    para1.InsertAfter "Standard simulation:" & vbCrLf
+
+    For Each objItem In fileList
+        foundKeyword = False
+        ' Check if the file name contains any of the keywords
+        For i = LBound(UFSkeywords) To UBound(UFSkeywords)
+            If InStr(1, objItem, UFSkeywords(i), vbTextCompare) > 0 Then
+                For n = LBound(keywords) To UBound(keywords)
+                    If InStr(1, objItem, keywords(n), vbTextCompare) > InStr(1, objItem, UFSkeywords(i), vbTextCompare) Then
+                        foundKeyword = True
+                        Exit For
+                    End If
+                Next n
+                If foundKeyword Then
+                    Exit For
+                End If
+            End If
+        Next i
+        
+        For i = LBound(specficikeywords) To UBound(specficikeywords)
+            If InStr(1, objItem, specficikeywords(i), vbTextCompare) > 0 Then
+                foundKeyword = True
+                Exit For
+            End If
+        Next i
+        
+        If Not foundKeyword Then
+            part1Count = part1Count + 1
+            para1.InsertAfter objItem & vbCrLf
+            para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0.3)
+        Else
+            fileList_2nd.Add objItem
+        End If
+    Next objItem
+    
+
+    ' Part 2: Files containing any of the predefined keywords
+    part2Count = 0
+    para1.InsertAfter vbCrLf & "UFS Defect simulation:" & vbCrLf
+    para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0.3)
+    Set fileList_3rd = New Collection
+    For Each objItem In fileList_2nd
+        foundKeyword = False
+        ' Check if the file name does not contain any of the keywords
+        For i = LBound(keywords) To UBound(keywords)
+            If InStr(1, objItem, keywords(i), vbTextCompare) > 0 Then
+                foundKeyword = True
+                Exit For
+            End If
+        Next i
+        
+        For i = LBound(UFSkeywords) To UBound(UFSkeywords)
+            If InStr(1, objItem, UFSkeywords(i), vbTextCompare) = 0 Then
+                foundKeyword = False
+                Exit For
+            End If
+        Next i
+        
+        If foundKeyword Then
+            part2Count = part2Count + 1
+            para1.InsertAfter objItem & vbCrLf
+            para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0.3)
+        Else
+            fileList_3rd.Add objItem
+        End If
+    Next objItem
+
+
+    ' Part 3: Files containing any of the predefined specficikeywords
+    part3Count = 0
+    para1.InsertAfter vbCrLf & "Customer specific simulation:" & vbCrLf
+    para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0.3)
+    For Each objItem In fileList_3rd
+        foundKeyword = False
+        ' Check if the file name does not contain any of the specficikeywords
+        For i = LBound(specficikeywords) To UBound(specficikeywords)
+            If InStr(1, objItem, specficikeywords(i), vbTextCompare) > 0 Then
+                foundKeyword = True
+                Exit For
+            End If
+        Next i
+        
+        If foundKeyword Then
+            part3Count = part3Count + 1
+            para1.InsertAfter objItem & vbCrLf & vbCrLf
+            para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0.3)
+        Else
+            part3Count = part3Count + 1
+            para1.InsertAfter objItem & vbCrLf & vbCrLf
+            para1.ParagraphFormat.FirstLineIndent = InchesToPoints(0.3)
+            para1.Font.ColorIndex = wdDarkRed
+        End If
+    Next objItem
+    
+
+    ' Clean up objects
+    Set objFolder = Nothing
+    Set objShell = Nothing
+End Sub
+Private Sub ListFilesInZip(folder As Object, fileList As Collection)
+    Dim item As Object
+    
+    For Each item In folder.Items
+        If item.IsFolder Then
+            ListFilesInZip item.GetFolder, fileList
+        Else
+            fileList.Add item.Name
+        End If
+    Next item
+End Sub

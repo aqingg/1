@@ -13,3 +13,8 @@ npm start
 3001
 cd app-pms-project-main
 npm start
+
+
+使用git add .保存
+git push提交
+git commit 
