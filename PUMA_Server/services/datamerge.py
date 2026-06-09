@@ -29,6 +29,8 @@ else:
 import docx  # type: ignore[reportMissingImports]  # noqa: E402
 
 from services.word.logo import replace_logo_placeholders
+from services.email.parser import parse_email_pair
+from utils.path_config import EMAIL_DIR
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -135,7 +137,6 @@ async def fetch_single_project_details(uuid: str) -> Optional[Dict[str, Any]]:
         "AlmProjectName": "N/A",
         "ReferenceProjectPn": "N/A",
         "ReferenceProjectBm": "N/A",
-        "role_email_summary": "N/A",
     }
 
     async def get_step2_data(client: httpx.AsyncClient):
@@ -341,6 +342,23 @@ def fill_docx_by_placeholders(
         raise HTTPException(status_code=400, detail=f"无法处理提供的Word文件: {exc}") from exc
 
     formatted_profile = _prepare_profile_for_filling(profile_dict)
+    # Try to populate email-related placeholders from DB/Email directory
+    try:
+        email_map = parse_email_pair(EMAIL_DIR)
+        send = email_map.get("send", {}) or {}
+        approval = email_map.get("approval", {}) or {}
+
+        # Map into formatted_profile keys expected by template placeholders
+        formatted_profile["Email.Approval.SenderFull"] = approval.get("sender", "N/A")
+        formatted_profile["Email.Approval.SentDate"] = approval.get("sent_date", "N/A")
+        formatted_profile["Email.Approval.MsgFileName"] = approval.get("file", "N/A")
+        formatted_profile["Email.Send.ZipFileName"] = send.get("zip", "N/A")
+        formatted_profile["Email.Send.StandardXlsxFiles"] = "\n".join(send.get("standard_xlsx_files", []) or []) or "N/A"
+        formatted_profile["Email.Send.DefectXlsxFiles"] = "\n".join(send.get("defect_xlsx_files", []) or []) or "N/A"
+        formatted_profile["Email.Send.StandardXlsxCount"] = str(send.get("standard_xlsx_count", 0) or 0)
+        formatted_profile["Email.Send.DefectXlsxCount"] = str(send.get("defect_xlsx_count", 0) or 0)
+    except Exception:
+        logger.exception("Failed to populate email placeholders from %s", EMAIL_DIR)
     placeholder_pattern = re.compile(r"<\s*PMS\.([^>]+?)\s*>")
 
     def normalize_header_text(value: str) -> str:

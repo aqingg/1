@@ -17,7 +17,7 @@ and does NOT rely on bind mounts or host paths.
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-#PROJECT_ROOT = Path(r"N:\Prj\PS\32_Application\EPD5-AppPUMA-Templates")
+# PROJECT_ROOT = Path(r"N:\Prj\PS\32_Application\EPD5-AppPUMA-Templates")
 # PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # ==========================================================
@@ -42,7 +42,6 @@ BASE_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 # ==========================================================
 # Derived paths
 # ==========================================================
-
 DB_PATH = BASE_RUNTIME_DIR / "app.db"
 
 DATA_SOURCE_DIR = BASE_RUNTIME_DIR / "data_source"
@@ -51,6 +50,7 @@ TEMPLATES_DIR = BASE_RUNTIME_DIR / "templates"
 DOWNLOADS_DIR = BASE_RUNTIME_DIR / "downloads"
 LOGS_DIR = BASE_RUNTIME_DIR / "logs"
 HISTORY_DIR = BASE_RUNTIME_DIR / "history"
+EMAIL_DIR = BASE_RUNTIME_DIR / "Email"
 
 # ==========================================================
 # Ensure directory structure exists
@@ -63,5 +63,6 @@ for _dir in [
     DOWNLOADS_DIR,
     LOGS_DIR,
     HISTORY_DIR,
+    EMAIL_DIR,
 ]:
     _dir.mkdir(parents=True, exist_ok=True)
