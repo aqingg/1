@@ -572,7 +572,10 @@ def get_path(
         raise HTTPException(status_code=400, detail=f"No RelativePath found for label={label}")
 
     root_paths = extract_root_paths(projectInfo)
-    root = root_paths.get(type)
+    normalized_type = type
+    if normalized_type == "Copy":
+        normalized_type = "local"
+    root = root_paths.get(normalized_type)
     if not root:
         raise HTTPException(status_code=400, detail=f"No root path for type={type}")
 
@@ -613,7 +616,7 @@ def get_path(
         )
 
     # -------------------- Final Path Combination --------------------
-    if type == "cloud":
+    if normalized_type == "cloud":
         final_path = root.rstrip("/") + "/" + relative.lstrip("\\/")
     else:
         final_path = root.rstrip("\\") + "\\" + relative.lstrip("\\")
