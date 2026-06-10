@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from utils.file_loader import load_json, extract_root_paths, load_folder_mapping, load_template
+from utils.file_loader import (
+    load_json,
+    extract_root_paths,
+    load_folder_mapping,
+    load_template,
+    replace_path_tokens,
+)
 from crud.project import (
     get_project,
     create_project,
@@ -441,6 +447,50 @@ def find_level1_name_under_root(taskTree, targetTaskId):
     return None
 
 
+def _find_task_path(nodes, target_task_id):
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+
+        current_path = [node]
+        if node.get("id") == target_task_id:
+            return current_path
+
+        children = node.get("children") or []
+        if isinstance(children, list) and children:
+            child_path = _find_task_path(children, target_task_id)
+            if child_path:
+                return current_path + child_path
+
+    return None
+
+
+def _extract_calibration_parameter(task_name: str) -> str:
+    clean_name = str(task_name or "").strip()
+    if not clean_name:
+        return ""
+
+    if "_" in clean_name:
+        suffix = clean_name.rsplit("_", 1)[-1].strip()
+        if suffix:
+            return suffix
+
+    return clean_name
+
+
+def _resolve_calibration_id(taskTree, taskId):
+    if not taskId:
+        return ""
+
+    path = _find_task_path(taskTree, taskId)
+    if not path or len(path) < 2:
+        return ""
+
+    parent_task = path[-2]
+    parent_name = str(parent_task.get("taskName") or "").strip()
+    return _extract_calibration_parameter(parent_name)
+
+
 @router.get("/getPath")
 def get_path(
     label: str,
@@ -479,24 +529,35 @@ def get_path(
     # ============================================================
     if absolute_path:
         final_path = absolute_path
+        workflow = None
+        taskTree = []
+        calibration_id = ""
 
         # ---------------- AlgoID 替换 ----------------
         if "AlgoID" in final_path:
-            workflow = json.loads(project.projectWorkFlow)
-            taskTree = workflow.get("taskTree", [])
+            if workflow is None:
+                workflow = json.loads(project.projectWorkFlow)
+                taskTree = workflow.get("taskTree", [])
             level1_name = find_level1_parent_name(taskTree, taskId)
             if not level1_name:
                 raise HTTPException(status_code=400, detail=f"Cannot find level1 parent for taskId {taskId}")
             final_path = final_path.replace("AlgoID", level1_name)
 
         # -------- ProjectID_Parameter_ID 替换 --------
-        if "ProjectID_Parameter_ID" in final_path:
-            workflow = json.loads(project.projectWorkFlow)
-            taskTree = workflow.get("taskTree", [])
-            p1 = find_level1_name_under_root(taskTree, taskId)
-            if not p1:
-                raise HTTPException(status_code=400, detail=f"Cannot find parameter-level1 parent for taskId {taskId}")
-            final_path = final_path.replace("ProjectID_Parameter_ID", p1)
+        if "ProjectID_Parameter_ID" in final_path or "CalibrationID" in final_path:
+            if workflow is None:
+                workflow = json.loads(project.projectWorkFlow)
+                taskTree = workflow.get("taskTree", [])
+            calibration_id = _resolve_calibration_id(taskTree, taskId)
+            if not calibration_id:
+                raise HTTPException(status_code=400, detail=f"Cannot resolve CalibrationID for taskId {taskId}")
+            final_path = replace_path_tokens(
+                final_path,
+                {
+                    "ProjectID_Parameter_ID": calibration_id,
+                    "CalibrationID": calibration_id,
+                },
+            )
 
         return {
             "success": True,
@@ -531,7 +592,7 @@ def get_path(
         relative = relative.replace("AlgoID", level1_name)
 
     # -------- Relative ProjectID_Parameter_ID Logic --------
-    if "ProjectID_Parameter_ID" in relative:
+    if "ProjectID_Parameter_ID" in relative or "CalibrationID" in relative:
         workflow_raw = project.projectWorkFlow
         try:
             workflow = json.loads(workflow_raw)
@@ -539,11 +600,17 @@ def get_path(
             raise HTTPException(status_code=500, detail="Failed to parse projectWorkFlow JSON")
 
         taskTree = workflow.get("taskTree", [])
-        p1 = find_level1_name_under_root(taskTree, taskId)
-        if not p1:
-            raise HTTPException(status_code=400, detail=f"Cannot find calibration-level1 parent for taskId {taskId}")
+        calibration_id = _resolve_calibration_id(taskTree, taskId)
+        if not calibration_id:
+            raise HTTPException(status_code=400, detail=f"Cannot resolve CalibrationID for taskId {taskId}")
 
-        relative = relative.replace("ProjectID_Parameter_ID", p1)
+        relative = replace_path_tokens(
+            relative,
+            {
+                "ProjectID_Parameter_ID": calibration_id,
+                "CalibrationID": calibration_id,
+            },
+        )
 
     # -------------------- Final Path Combination --------------------
     if type == "cloud":

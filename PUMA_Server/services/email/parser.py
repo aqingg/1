@@ -58,24 +58,30 @@ def _normalize_zip_entry_name(entry_name: str) -> str:
 def _classify_excel_files(excel_names: list[str]) -> dict[str, list[str]]:
     standard_files: list[str] = []
     defect_files: list[str] = []
+    specific_files: list[str] = []
 
     for name in excel_names:
         base_name = _normalize_zip_entry_name(name)
         lower_name = base_name.lower()
         if lower_name.startswith("~$"):
             continue
-        if any(token in lower_name for token in ("normal", "ok")):
-            standard_files.append(base_name)
-        elif "defect" in lower_name:
+        if any(token in lower_name for token in ("pps", "idf", "idp")):
+            specific_files.append(base_name)
+        elif any(token in lower_name for token in ("df", "def")):
             defect_files.append(base_name)
+        else:
+            standard_files.append(base_name)
 
     standard_files.sort()
     defect_files.sort()
+    specific_files.sort()
     return {
         "standard_xlsx_files": standard_files,
         "defect_xlsx_files": defect_files,
+        "specific_xlsx_files": specific_files,
         "standard_xlsx_count": len(standard_files),
         "defect_xlsx_count": len(defect_files),
+        "specific_xlsx_count": len(specific_files),
     }
 
 
@@ -164,8 +170,10 @@ def parse_msg_summary(msg_path: Path) -> Dict[str, Optional[str]]:
             "xlsx_entries": zip_info.get("xlsx_entries", []),
             "standard_xlsx_files": zip_info.get("standard_xlsx_files", []),
             "defect_xlsx_files": zip_info.get("defect_xlsx_files", []),
+            "specific_xlsx_files": zip_info.get("specific_xlsx_files", []),
             "standard_xlsx_count": zip_info.get("standard_xlsx_count", 0),
             "defect_xlsx_count": zip_info.get("defect_xlsx_count", 0),
+            "specific_xlsx_count": zip_info.get("specific_xlsx_count", 0),
         }
     finally:
         msg.close()

@@ -33,7 +33,7 @@ from services.word_sections import (
     rewrite_red_paragraph_text_batch,
     update_tocs_with_word,
 )
-from utils.file_loader import load_folder_mapping
+from utils.file_loader import build_local_workspace_paths, load_folder_mapping
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -154,6 +154,21 @@ def _resolve_output_dir() -> Path:
     output_dir = Path(absolute_path)
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
+
+
+def _resolve_local_workspace_dirs(
+    resolved_project_info: dict[str, Any],
+    calibration_parameter: str,
+) -> dict[str, Path] | None:
+    project_info = resolved_project_info.get("projectInfo", [])
+    if not isinstance(project_info, list) or not calibration_parameter:
+        return None
+
+    try:
+        return build_local_workspace_paths(project_info, calibration_parameter, create=True)
+    except ValueError as exc:
+        logger.warning("[TCD08] Local workspace resolution skipped: %s", exc)
+        return None
 
 
 def _load_project_info_from_db(project_id: Optional[int], db: Session) -> dict:
@@ -319,7 +334,20 @@ async def generate_tcd08_report(
     )
 
     template_paths = _resolve_template_paths()
-    output_dir = _resolve_output_dir()
+    workspace_dirs = _resolve_local_workspace_dirs(resolved_project_info, calibration_parameter)
+    if workspace_dirs:
+        output_dir = workspace_dirs["tcd08_report_dir"]
+        email_dir = workspace_dirs["email_dir"]
+        logger.info(
+            "[TCD08] Local workspace resolved. local_root=%s calibration_root=%s output_dir=%s email_dir=%s",
+            workspace_dirs["local_root"],
+            workspace_dirs["calibration_root"],
+            output_dir,
+            email_dir,
+        )
+    else:
+        output_dir = _resolve_output_dir()
+        email_dir = None
     sections_to_delete = sections_to_delete_by_calibration_scope(resolved_project_info)
     red_paragraph_deletions = red_paragraph_deletion_rules(resolved_project_info, sections_to_delete)
     merged_red_paragraph_deletions = _merge_red_paragraph_deletions(red_paragraph_deletions)
@@ -371,7 +399,7 @@ async def generate_tcd08_report(
                 template_path,
             )
             step_start = time.perf_counter()
-            filled_stream = fill_docx_by_placeholders(profile_dict, template_path)
+            filled_stream = fill_docx_by_placeholders(profile_dict, template_path, email_dir=email_dir)
             logger.info(
                 "[TCD08] (%s/%s) Placeholder filling took %.2fs.",
                 index,

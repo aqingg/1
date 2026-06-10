@@ -1,4 +1,4 @@
-[
+
 
   {
     "TagName": "ARS",
@@ -62,8 +62,12 @@
   {
     "TagName": "ONETCD&TCD08_Report",
     "FileKeyWord": "",
-    "RelativePath":"",
-    "AbsolutePath": "\\\\bosch.com\\dfsrb\\DfsCN\\DIV\\CC\\Prj\\PS\\32_Application\\EPD5-CN-Tools-Mgmt\\00.General\\PUMA_Test2"
+    "RelativePath": "\\40.Application\\C.Calibration\\CalibrationID\\06_Official_Release\\TCD08_Report"
+  },
+  {
+	"TagName": "Customer Approval Email",
+    "FileKeyWord": "",
+    "RelativePath": "\\40.Application\\C.Calibration\\CalibrationID\\03_Results\\Customer_Approval_Email"
   },
 
   {

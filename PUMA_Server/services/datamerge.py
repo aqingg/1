@@ -335,6 +335,7 @@ def _prepare_profile_for_filling(profile_dict: dict[str, Any]) -> dict[str, str]
 def fill_docx_by_placeholders(
     profile_dict: dict[str, Any],
     source: Union[Path, io.BytesIO],
+    email_dir: Optional[Path] = None,
 ) -> io.BytesIO:
     try:
         document = docx.Document(source)
@@ -344,7 +345,8 @@ def fill_docx_by_placeholders(
     formatted_profile = _prepare_profile_for_filling(profile_dict)
     # Try to populate email-related placeholders from DB/Email directory
     try:
-        email_map = parse_email_pair(EMAIL_DIR)
+        email_source_dir = Path(email_dir) if email_dir else EMAIL_DIR
+        email_map = parse_email_pair(email_source_dir)
         send = email_map.get("send", {}) or {}
         approval = email_map.get("approval", {}) or {}
 
@@ -355,10 +357,12 @@ def fill_docx_by_placeholders(
         formatted_profile["Email.Send.ZipFileName"] = send.get("zip", "N/A")
         formatted_profile["Email.Send.StandardXlsxFiles"] = "\n".join(send.get("standard_xlsx_files", []) or []) or "N/A"
         formatted_profile["Email.Send.DefectXlsxFiles"] = "\n".join(send.get("defect_xlsx_files", []) or []) or "N/A"
+        formatted_profile["Email.Send.SpecificXlsxFiles"] = "\n".join(send.get("specific_xlsx_files", []) or []) or "N/A"
         formatted_profile["Email.Send.StandardXlsxCount"] = str(send.get("standard_xlsx_count", 0) or 0)
         formatted_profile["Email.Send.DefectXlsxCount"] = str(send.get("defect_xlsx_count", 0) or 0)
+        formatted_profile["Email.Send.SpecificXlsxCount"] = str(send.get("specific_xlsx_count", 0) or 0)
     except Exception:
-        logger.exception("Failed to populate email placeholders from %s", EMAIL_DIR)
+        logger.exception("Failed to populate email placeholders from %s", email_dir or EMAIL_DIR)
     placeholder_pattern = re.compile(r"<\s*PMS\.([^>]+?)\s*>")
 
     def normalize_header_text(value: str) -> str:
@@ -402,31 +406,63 @@ def fill_docx_by_placeholders(
 
     normalize_document_change_table(document)
 
-    def replacer(match: re.Match) -> str:
+    table_wrap_keys = {"FlConfiguration"}
+
+    def format_table_cell_value(key: str, value: Any) -> str:
+        text = "N/A" if value is None else str(value).strip()
+        if key not in table_wrap_keys:
+            return text
+        if not text or text in {"N/A", "NA", "NULL", "NONE"}:
+            return text
+
+        items = [
+            item.strip()
+            for item in re.split(r"\s*(?:\+|,|;|；|，|\n)\s*", text)
+            if item.strip()
+        ]
+
+        if len(items) <= 3:
+            return text
+
+        wrapped_lines = [
+            " + ".join(items[index:index + 3])
+            for index in range(0, len(items), 3)
+        ]
+        return "\n".join(wrapped_lines)
+
+    def replacer(match: re.Match, in_table_cell: bool = False) -> str:
         combined_key = match.group(1).strip()
         if combined_key.lower() == "logo":
             return "<PMS.logo>"
         if "-" in combined_key:
             keys = [key.strip() for key in combined_key.split("-")]
             value_parts = [formatted_profile.get(key, "N/A") for key in keys]
-            return "_".join(value_parts)
-        return formatted_profile.get(combined_key, "N/A")
+            value = "_".join(value_parts)
+        else:
+            value = formatted_profile.get(combined_key, "N/A")
 
-    def substitute_in_paragraph(paragraph):
+        if in_table_cell:
+            return format_table_cell_value(combined_key, value)
+        return str(value)
+
+    def substitute_in_paragraph(paragraph, in_table_cell: bool = False):
         if placeholder_pattern.search(paragraph.text):
             full_text = paragraph.text
-            new_text = placeholder_pattern.sub(replacer, full_text)
+            new_text = placeholder_pattern.sub(
+                lambda match: replacer(match, in_table_cell=in_table_cell),
+                full_text,
+            )
             if new_text != full_text:
                 paragraph.text = new_text
 
-    def substitute_in_container(container):
+    def substitute_in_container(container, in_table_cell: bool = False):
         for paragraph in container.paragraphs:
-            substitute_in_paragraph(paragraph)
+            substitute_in_paragraph(paragraph, in_table_cell=in_table_cell)
 
         for table in container.tables:
             for row in table.rows:
                 for cell in row.cells:
-                    substitute_in_container(cell)
+                    substitute_in_container(cell, in_table_cell=True)
 
     substitute_in_container(document)
 
