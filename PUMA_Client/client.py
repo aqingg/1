@@ -22,6 +22,7 @@ import platform
 import time
 import socket
 import cgi
+import re
 from urllib.parse import urlparse
 
 from typing import List
@@ -633,6 +634,46 @@ class CopyRequest(BaseModel):
         description="The absolute path where the source folder should be copied to.",
     )
 
+
+class CalibrationFolderRequest(BaseModel):
+    local_root: str = Field(..., description="Local Link root path.")
+    calibration_id: str = Field(..., description="CalibrationID folder name.")
+
+
+class CalibrationRenameRequest(BaseModel):
+    local_root: str = Field(..., description="Local Link root path.")
+    old_calibration_id: str = Field(..., description="Existing CalibrationID folder name.")
+    new_calibration_id: str = Field(..., description="New CalibrationID folder name.")
+
+
+def _validate_windows_folder_name(folder_name: str) -> str:
+    cleaned = (folder_name or "").strip()
+    if not cleaned:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="CalibrationID is required.",
+        )
+
+    if re.search(r'[<>:"/\\|?*]', cleaned):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CalibrationID contains invalid Windows folder characters: {cleaned}",
+        )
+
+    if any(ord(character) < 32 for character in cleaned):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CalibrationID contains control characters: {cleaned}",
+        )
+
+    if cleaned in {".", ".."}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"CalibrationID is not valid: {cleaned}",
+        )
+
+    return cleaned
+
 @app.post("/copy-folder")
 async def copy_folder_to_destination(request_data: CopyRequest):
     des = f"{request_data.destination_path}\\40.Application"
@@ -666,6 +707,102 @@ async def copy_folder_to_destination(request_data: CopyRequest):
         "status": "success",
         "message": f"Folder successfully copied from '{SOURCE_FOLDER_PATH}' to '{destination}'.",
         "destination": destination,
+    }
+
+@app.post("/createCalibrationFolder")
+async def create_calibration_folder(request_data: CalibrationFolderRequest):
+    local_root = os.path.abspath((request_data.local_root or "").strip())
+    calibration_id = _validate_windows_folder_name(request_data.calibration_id)
+
+    if not local_root:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Local root path is required.",
+        )
+
+    calibration_root = os.path.join(local_root, "40.Application", "C.Calibration", calibration_id)
+    if os.path.exists(calibration_root):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Calibration folder already exists: {calibration_root}",
+        )
+
+    targets = [
+        os.path.join(calibration_root, "01_MDS"),
+        os.path.join(calibration_root, "02_Parameter"),
+        os.path.join(calibration_root, "03_Results", "Customer_Approval_Email"),
+        os.path.join(calibration_root, "04_Internal_Release"),
+        os.path.join(calibration_root, "05_Test_Input"),
+        os.path.join(calibration_root, "06_Official_Release", "TCD08_Report"),
+    ]
+
+    try:
+        for target in targets:
+            os.makedirs(target, exist_ok=True)
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Insufficient permissions to create calibration folder tree under: {calibration_root}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create calibration folder tree: {exc}",
+        )
+
+    return {
+        "status": "success",
+        "message": f"Calibration workspace created: {calibration_root}",
+        "calibration_root": calibration_root,
+        "created_targets": targets,
+    }
+
+
+@app.post("/renameCalibrationFolder")
+async def rename_calibration_folder(request_data: CalibrationRenameRequest):
+    local_root = os.path.abspath((request_data.local_root or "").strip())
+    old_calibration_id = _validate_windows_folder_name(request_data.old_calibration_id)
+    new_calibration_id = _validate_windows_folder_name(request_data.new_calibration_id)
+
+    if old_calibration_id.lower() == new_calibration_id.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Old and new CalibrationID are the same.",
+        )
+
+    old_root = os.path.join(local_root, "40.Application", "C.Calibration", old_calibration_id)
+    new_root = os.path.join(local_root, "40.Application", "C.Calibration", new_calibration_id)
+
+    if not os.path.exists(old_root):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Source calibration folder does not exist: {old_root}",
+        )
+
+    if os.path.exists(new_root):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Target calibration folder already exists: {new_root}",
+        )
+
+    try:
+        os.rename(old_root, new_root)
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Insufficient permissions to rename calibration folder: {old_root} -> {new_root}",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rename calibration folder: {exc}",
+        )
+
+    return {
+        "status": "success",
+        "message": f"Calibration workspace renamed: {old_root} -> {new_root}",
+        "old_root": old_root,
+        "new_root": new_root,
     }
 
 # =================================================================================
