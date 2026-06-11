@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect, useCallback  } from 'react';
-import { Typography, Tree, Space, message, Tooltip, Modal, Button } from 'antd';
+import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { Typography, Tree, Space, message, Tooltip, Button } from "antd";
 import {
   CheckCircleOutlined,
   PauseCircleOutlined,
@@ -8,211 +8,315 @@ import {
   ProjectOutlined,
   CopyOutlined,
   DeleteOutlined,
-} from '@ant-design/icons';
+} from "@ant-design/icons";
 
-import ProgressBar from '../ProgressBar';
+import ProgressBar from "../ProgressBar";
 import { useAppContext } from "../../../context/AppContext";
+
+const { Title, Text } = Typography;
 
 const WINDOWS_CALIBRATION_ID_PATTERN = /[<>:"/\\|?*]/;
 
-const uuid = () => crypto.randomUUID();
-
-const collectSubtreeIds = (task, collected = []) => {
-  if (!task) return collected;
-  collected.push(task.id);
-  task.children?.forEach((child) => collectSubtreeIds(child, collected));
-  return collected;
+const clonePlain = (value) => {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
 };
 
-const findNode = (nodes, id) => {
-  for (const node of nodes) {
-    if (node.id === id) return node;
-    if (node.children?.length) {
-      const result = findNode(node.children, id);
-      if (result) return result;
-    }
+const uuid = () => {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
   }
-  return null;
-};
-
-const findParentNode = (nodes, id, parent = null) => {
-  for (const node of nodes) {
-    if (node.id === id) return parent;
-    if (node.children?.length) {
-      const result = findParentNode(node.children, id, node);
-      if (result) return result;
-    }
-  }
-  return null;
-};
-
-const findParentAndIndex = (nodes, id, parent = null) => {
-  for (let index = 0; index < nodes.length; index += 1) {
-    const node = nodes[index];
-
-    if (node.id === id) {
-      return { parent, index, siblings: nodes };
-    }
-
-    if (node.children?.length) {
-      const result = findParentAndIndex(node.children, id, node);
-      if (result) return result;
-    }
-  }
-  return null;
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
 const hasControlCharacters = (value) =>
   Array.from(value || "").some((character) => character.charCodeAt(0) < 32);
 
+const isCalibrationNodeName = (name) =>
+  String(name || "").trim().toLowerCase() === "calibration";
+
+const collectSubtreeIds = (task, collected = []) => {
+  if (!task) return collected;
+
+  collected.push(task.id);
+
+  if (Array.isArray(task.children)) {
+    task.children.forEach((child) => collectSubtreeIds(child, collected));
+  }
+
+  return collected;
+};
+
+const findNode = (nodes, id) => {
+  if (!Array.isArray(nodes)) return null;
+
+  for (const node of nodes) {
+    if (node.id === id) return node;
+
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      const result = findNode(node.children, id);
+      if (result) return result;
+    }
+  }
+
+  return null;
+};
+
+const findParentNode = (nodes, id, parent = null) => {
+  if (!Array.isArray(nodes)) return null;
+
+  for (const node of nodes) {
+    if (node.id === id) return parent;
+
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      const result = findParentNode(node.children, id, node);
+      if (result) return result;
+    }
+  }
+
+  return null;
+};
+
+const findParentAndIndex = (nodes, id, parent = null) => {
+  if (!Array.isArray(nodes)) return null;
+
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+
+    if (node.id === id) {
+      return {
+        parent,
+        index,
+        siblings: nodes,
+      };
+    }
+
+    if (Array.isArray(node.children) && node.children.length > 0) {
+      const result = findParentAndIndex(node.children, id, node);
+      if (result) return result;
+    }
+  }
+
+  return null;
+};
+
+const removeNodeById = (nodes, id) => {
+  if (!Array.isArray(nodes)) return [];
+
+  return nodes
+    .filter((node) => node.id !== id)
+    .map((node) => {
+      if (!Array.isArray(node.children)) return node;
+
+      return {
+        ...node,
+        children: removeNodeById(node.children, id),
+      };
+    });
+};
+
+const getAllKeys = (nodes) => {
+  const keys = [];
+
+  const dfs = (items) => {
+    if (!Array.isArray(items)) return;
+
+    items.forEach((item) => {
+      keys.push(item.id);
+
+      if (Array.isArray(item.children) && item.children.length > 0) {
+        dfs(item.children);
+      }
+    });
+  };
+
+  dfs(nodes);
+  return keys;
+};
+
 const deepCopyTask = (task, newDetails, taskDetails) => {
   const newId = uuid();
+  const sourceDetail = taskDetails?.[task.id];
 
-  if (taskDetails?.[task.id]) {
+  if (sourceDetail) {
     newDetails[newId] = {
-      ...taskDetails[task.id],
-      taskName: taskDetails[task.id].taskName + " (Copy)",
+      ...clonePlain(sourceDetail),
+      taskName: `${sourceDetail.taskName || task.taskName} (Copy)`,
     };
   }
 
   return {
-    ...task,
+    ...clonePlain(task),
     id: newId,
     status: "Pending",
-    children: task.children?.map((child) => deepCopyTask(child, newDetails, taskDetails)) || [],
+    children: Array.isArray(task.children)
+      ? task.children.map((child) => deepCopyTask(child, newDetails, taskDetails))
+      : [],
   };
 };
 
-const deepCopyCalibrationSubtree = (task, newDetails, rootTaskName, taskDetails) => {
+const deepCopyCalibrationSubtree = (
+  task,
+  newDetails,
+  rootTaskName,
+  taskDetails
+) => {
   const newId = uuid();
   const originalDetail = taskDetails?.[task.id];
 
   if (originalDetail) {
     newDetails[newId] = {
-      ...structuredClone(originalDetail),
+      ...clonePlain(originalDetail),
       taskName: rootTaskName,
     };
   } else {
-    newDetails[newId] = { taskName: rootTaskName };
+    newDetails[newId] = {
+      taskName: rootTaskName,
+    };
   }
 
   return {
-    ...task,
+    ...clonePlain(task),
     id: newId,
     taskName: rootTaskName,
     status: "Pending",
-    children: task.children?.map((child) => deepCopyCalibrationSubtree(child, newDetails, child.taskName, taskDetails)) || [],
+    children: Array.isArray(task.children)
+      ? task.children.map((child) =>
+          deepCopyCalibrationSubtree(
+            child,
+            newDetails,
+            child.taskName,
+            taskDetails
+          )
+        )
+      : [],
   };
 };
 
-const { Title, Text } = Typography;
-
 export default function Progress() {
-  const { projectWorkFlow, updateWorkFlow, user, projectName, projectId, createCalibrationWorkspace } =
-    useAppContext();
+  const {
+    projectWorkFlow,
+    updateWorkFlow,
+    user,
+    projectName,
+    projectId,
+    createCalibrationWorkspace,
+  } = useAppContext();
 
   const [selectedTaskId, setSelectedTaskId] = useState(null);
+  const [expandedKeys, setExpandedKeys] = useState([]);
+  const [initialized, setInitialized] = useState(false);
 
-  const taskTree = useMemo(() => projectWorkFlow?.taskTree || [], [projectWorkFlow?.taskTree]);
+  const taskTree = useMemo(
+    () => projectWorkFlow?.taskTree || [],
+    [projectWorkFlow?.taskTree]
+  );
 
-  // ===========================
-  // 状态图标
-  // ===========================
-  const getStatusIcon = (status) => {
+  const getStatusIcon = useCallback((status) => {
     switch (status) {
       case "Done":
-        return <CheckCircleOutlined style={{ color: "#52c41a", fontSize: 16 }} />;
+        return <CheckCircleOutlined style={{ color: "#52c41a" }} />;
       case "Pending":
-        return <PauseCircleOutlined style={{ color: "#b9900a", fontSize: 16 }} />;
+        return <PauseCircleOutlined style={{ color: "#8c8c8c" }} />;
       case "Decline":
-        return <MinusCircleOutlined style={{ color: "#707070", fontSize: 16 }} />;
+        return <MinusCircleOutlined style={{ color: "#ff4d4f" }} />;
       case "Ongoing":
-        return <SyncOutlined spin style={{ color: "#1677ff", fontSize: 16 }} />;
+        return <SyncOutlined spin style={{ color: "#1677ff" }} />;
       default:
-        return null;
+        return <ProjectOutlined style={{ color: "#8c8c8c" }} />;
     }
-  };
+  }, []);
 
-  // ===========================
-  // DFS 统计节点
-  // ===========================
   const countTasks = useCallback((node) => {
     let total = 1;
     let done = node.status === "Done" ? 1 : 0;
     let decline = node.status === "Decline" ? 1 : 0;
 
-    if (node.children) {
-      node.children.forEach((ch) => {
-        const r = countTasks(ch);
-        total += r.total;
-        done += r.done;
-        decline += r.decline;
+    if (Array.isArray(node.children)) {
+      node.children.forEach((child) => {
+        const result = countTasks(child);
+        total += result.total;
+        done += result.done;
+        decline += result.decline;
       });
     }
-    return { total, done, decline };
-  }, []); 
 
-  // ===========================
-  // 整体进度
-  // ===========================
+    return { total, done, decline };
+  }, []);
+
   const overallProgress = useMemo(() => {
     if (!taskTree.length) return 0;
 
-    let total = 0,
-      done = 0,
-      decline = 0;
+    let total = 0;
+    let done = 0;
+    let decline = 0;
 
     taskTree.forEach((node) => {
-      const r = countTasks(node);
-      total += r.total;
-      done += r.done;
-      decline += r.decline;
+      const result = countTasks(node);
+      total += result.total;
+      done += result.done;
+      decline += result.decline;
     });
 
+    if (total === 0) return 0;
     return Math.round(((done + decline) / total) * 100);
   }, [taskTree, countTasks]);
 
-  const getCalibrationContainerNode = () => {
+  const getCalibrationContainerNode = useCallback(() => {
     if (!selectedTaskId) return null;
 
     const selectedNode = findNode(taskTree, selectedTaskId);
     if (!selectedNode) return null;
 
-    if (selectedNode.taskName === "Calibration") {
+    if (isCalibrationNodeName(selectedNode.taskName)) {
       return selectedNode;
     }
 
     const parentNode = findParentNode(taskTree, selectedTaskId);
-    if (parentNode?.taskName === "Calibration") {
+    if (isCalibrationNodeName(parentNode?.taskName)) {
       return parentNode;
     }
 
     return null;
-  };
+  }, [selectedTaskId, taskTree]);
 
-  const getSelectedCalibrationChildNode = () => {
+  const getSelectedCalibrationChildNode = useCallback(() => {
     if (!selectedTaskId) return null;
 
     const selectedNode = findNode(taskTree, selectedTaskId);
     if (!selectedNode) return null;
 
     const parentNode = findParentNode(taskTree, selectedTaskId);
-    if (parentNode?.taskName === "Calibration" && selectedNode.taskName !== "Calibration") {
-      return { node: selectedNode, parent: parentNode };
+
+    if (
+      isCalibrationNodeName(parentNode?.taskName) &&
+      !isCalibrationNodeName(selectedNode.taskName)
+    ) {
+      return {
+        node: selectedNode,
+        parent: parentNode,
+      };
     }
 
     return null;
-  };
+  }, [selectedTaskId, taskTree]);
 
   const addCalibrationChild = useCallback(
     async (calibrationContainerNode = null) => {
-      const calibrationContainer = calibrationContainerNode || getCalibrationContainerNode();
+      const calibrationContainer =
+        calibrationContainerNode || getCalibrationContainerNode();
+
       if (!calibrationContainer) {
         message.warning("请先选择 Calibration 父节点或其任一子节点");
         return;
       }
 
-      if (!calibrationContainer.children?.length) {
+      if (
+        !Array.isArray(calibrationContainer.children) ||
+        calibrationContainer.children.length === 0
+      ) {
         message.error("当前 Calibration 节点下没有可复制的标准子树模板");
         return;
       }
@@ -221,38 +325,58 @@ export default function Progress() {
       if (rawCalibrationId === null) return;
 
       const calibrationId = rawCalibrationId.trim();
+
       if (!calibrationId) {
         message.error("CalibrationID 不能为空");
         return;
       }
 
-      if (WINDOWS_CALIBRATION_ID_PATTERN.test(calibrationId) || hasControlCharacters(calibrationId)) {
-        message.error("CalibrationID 含有 Windows 非法字符");
+      if (
+        WINDOWS_CALIBRATION_ID_PATTERN.test(calibrationId) ||
+        hasControlCharacters(calibrationId) ||
+        calibrationId === "." ||
+        calibrationId === ".."
+      ) {
+        message.error('CalibrationID 含有 Windows 非法字符，不能包含 <>:"/\\|?*');
         return;
       }
 
-      const calibrationIds = (calibrationContainer.children || []).map((child) => child.taskName?.trim());
+      const calibrationIds = (calibrationContainer.children || []).map((child) =>
+        child.taskName?.trim()
+      );
+
       if (calibrationIds.includes(calibrationId)) {
         message.error(`CalibrationID 已存在：${calibrationId}`);
         return;
       }
 
-      const templateNode = calibrationContainer.children[0];
-      const updated = JSON.parse(JSON.stringify(projectWorkFlow));
+      const updated = clonePlain(projectWorkFlow);
       const updatedContainer = findNode(updated.taskTree, calibrationContainer.id);
+
       if (!updatedContainer) {
         message.error("未找到 Calibration 父节点");
         return;
       }
 
+      const templateNode = calibrationContainer.children[0];
       const newDetails = {};
-  const clone = deepCopyCalibrationSubtree(templateNode, newDetails, calibrationId, projectWorkFlow?.taskDetails);
+      const clone = deepCopyCalibrationSubtree(
+        templateNode,
+        newDetails,
+        calibrationId,
+        projectWorkFlow?.taskDetails
+      );
+
       updatedContainer.children = [...(updatedContainer.children || []), clone];
-      updated.taskDetails = { ...updated.taskDetails, ...newDetails };
+      updated.taskDetails = {
+        ...(updated.taskDetails || {}),
+        ...newDetails,
+      };
 
       const localResult = await createCalibrationWorkspace({ calibrationId });
-      if (!localResult.success) {
-        message.error(localResult.message);
+
+      if (!localResult?.success) {
+        message.error(localResult?.message || "创建本地 Calibration 文件夹失败");
         return;
       }
 
@@ -264,198 +388,190 @@ export default function Progress() {
         workflow: updated,
       });
 
-      if (!saveResult.success) {
+      if (!saveResult?.success) {
         message.error("Calibration 目录已创建，但 workflow 保存失败");
         return;
       }
 
       setSelectedTaskId(clone.id);
-      setExpandedKeys((prev) => Array.from(new Set([
-        ...prev,
-        updatedContainer.id,
-        clone.id,
-        ...collectSubtreeIds(clone),
-      ])));
+      setExpandedKeys((prev) =>
+        Array.from(
+          new Set([
+            ...prev,
+            updatedContainer.id,
+            clone.id,
+            ...collectSubtreeIds(clone),
+          ])
+        )
+      );
+
       window.location.hash = `#/task/${projectId}/${clone.id}`;
       message.success("Calibration 子节点已创建");
     },
-    [createCalibrationWorkspace, getCalibrationContainerNode, message, projectId, projectName, projectWorkFlow, updateWorkFlow, user.department, user.username],
+    [
+      createCalibrationWorkspace,
+      getCalibrationContainerNode,
+      projectId,
+      projectName,
+      projectWorkFlow,
+      updateWorkFlow,
+      user.department,
+      user.username,
+    ]
   );
 
-  // ===========================
-  // 复制 Task
-  // ===========================
-  const copySelectedTask = async () => {
+  const copySelectedTask = useCallback(async () => {
     if (!selectedTaskId) {
       message.warning("Please select a task from the tree first");
       return;
     }
 
-    const updated = JSON.parse(JSON.stringify(projectWorkFlow));
+    const updated = clonePlain(projectWorkFlow);
     const node = findNode(updated.taskTree, selectedTaskId);
-    if (!node) return;
+
+    if (!node) {
+      message.error("未找到当前选中的节点");
+      return;
+    }
 
     const pos = findParentAndIndex(updated.taskTree, selectedTaskId);
-
     const newDetails = {};
     const clone = deepCopyTask(node, newDetails, projectWorkFlow?.taskDetails);
 
-    updated.taskDetails = { ...updated.taskDetails, ...newDetails };
+    updated.taskDetails = {
+      ...(updated.taskDetails || {}),
+      ...newDetails,
+    };
 
     if (pos) {
       const { siblings, index } = pos;
       siblings.splice(index + 1, 0, clone);
-    } 
-    else {
-      // 理论上不会发生，兜底
+    } else {
       updated.taskTree.push(clone);
-    }
-
-    await updateWorkFlow({
-      username: user.username,
-      department: user.department,
-      projectId: projectId,
-      projectName,
-      workflow: updated,
-    });
-
-    message.success("Task copied!");
-  };
-
-  // ===========================
-  // 删除 Task
-  // ===========================
-  const deleteSelectedTask = async () => {
-    if (!selectedTaskId) {
-      message.warning("Please select a task from the tree first");
-      return;
-    }
-
-    const updated = JSON.parse(JSON.stringify(projectWorkFlow));
-    const nodeToDelete = findNode(updated.taskTree, selectedTaskId);
-    if (!nodeToDelete) return;
-    const idsToDelete = collectSubtreeIds(nodeToDelete);
-
-    const removeNode = (nodes, id) => {
-      return nodes.filter((node) => {
-        if (node.id === id) return false;
-        if (node.children) node.children = removeNode(node.children, id);
-        return true;
-      });
-    };
-
-    updated.taskTree = removeNode(updated.taskTree, selectedTaskId);
-    if (updated.taskDetails) {
-      idsToDelete.forEach((id) => {
-        delete updated.taskDetails[id];
-      });
     }
 
     const res = await updateWorkFlow({
       username: user.username,
       department: user.department,
-      projectId: projectId,
+      projectId,
       projectName,
       workflow: updated,
     });
 
-    if (res.success) {
-      setSelectedTaskId(null);
-      message.success("Task deleted!");
+    if (res?.success) {
+      message.success("Task copied!");
     } else {
-      message.error("Delete failed");
+      message.error("Copy failed");
     }
-  };
+  }, [
+    projectId,
+    projectName,
+    projectWorkFlow,
+    selectedTaskId,
+    updateWorkFlow,
+    user.department,
+    user.username,
+  ]);
 
-  const deleteSelectedCalibrationChild = () => {
-    const calibrationChild = getSelectedCalibrationChildNode();
-    if (!calibrationChild) {
-      message.warning("请先选择 Calibration 下的子节点");
+  const deleteTaskById = useCallback(
+    async (taskIdToDelete, successMessage = "Task deleted!") => {
+      if (!taskIdToDelete) {
+        message.warning("Please select a task from the tree first");
+        return;
+      }
+
+      const updated = clonePlain(projectWorkFlow);
+      const nodeToDelete = findNode(updated.taskTree, taskIdToDelete);
+
+      if (!nodeToDelete) {
+        message.error("未找到要删除的节点");
+        return;
+      }
+
+      const parent = findParentNode(updated.taskTree, taskIdToDelete);
+      const idsToDelete = collectSubtreeIds(nodeToDelete);
+
+      updated.taskTree = removeNodeById(updated.taskTree, taskIdToDelete);
+
+      if (updated.taskDetails) {
+        idsToDelete.forEach((id) => {
+          delete updated.taskDetails[id];
+        });
+      }
+
+      const res = await updateWorkFlow({
+        username: user.username,
+        department: user.department,
+        projectId,
+        projectName,
+        workflow: updated,
+      });
+
+      if (res?.success) {
+        const nextSelectedId = parent?.id || null;
+        setSelectedTaskId(nextSelectedId);
+
+        if (nextSelectedId) {
+          window.location.hash = `#/task/${projectId}/${nextSelectedId}`;
+        } else {
+          window.location.hash = `#/project/${projectId}`;
+        }
+
+        message.success(successMessage);
+      } else {
+        message.error("Delete failed");
+      }
+    },
+    [
+      projectId,
+      projectName,
+      projectWorkFlow,
+      updateWorkFlow,
+      user.department,
+      user.username,
+    ]
+  );
+
+  const deleteSelectedTask = useCallback(() => {
+    if (!selectedTaskId) {
+      message.warning("Please select a task from the tree first");
       return;
     }
 
-    Modal.confirm({
-      title: "删除 Calibration 子节点？",
-      content: "默认只删除 workflow 节点，不会删除本地文件夹，避免误删 email、结果和报告。",
-      okText: "删除",
-      okType: "danger",
-      cancelText: "取消",
-      onOk: deleteSelectedTask,
-    });
-  };
+    const ok = window.confirm(
+      "确认删除当前选中的 workflow 节点？\n\n注意：这个操作不会删除本地文件夹。"
+    );
 
-  // ===========================
-  // TreeData
-  // ===========================
-  const treeData = useMemo(() => {
-    const renderNodeTitle = (item) => {
-      const isCalibrationContainer = item.taskName === "Calibration";
-      const isSelectedCalibrationChild =
-        selectedTaskId === item.id &&
-        item.taskName !== "Calibration" &&
-        findParentNode(taskTree, item.id)?.taskName === "Calibration";
+    if (!ok) return;
 
-      return (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <span>{item.taskName}</span>
-          {isCalibrationContainer && (
-            <Button
-              type="text"
-              size="small"
-              onClick={(event) => {
-                event.stopPropagation();
-                addCalibrationChild(item);
-              }}
-              style={{ minWidth: 18, padding: 0, height: 18, lineHeight: "18px", fontWeight: 700, color: "#1677ff" }}
-            >
-              +
-            </Button>
-          )}
-          {isSelectedCalibrationChild && (
-            <Button
-              type="text"
-              size="small"
-              onClick={(event) => {
-                event.stopPropagation();
-                deleteSelectedCalibrationChild();
-              }}
-              style={{ minWidth: 18, padding: 0, height: 18, lineHeight: "18px", fontWeight: 700, color: "#d4380d" }}
-            >
-              -
-            </Button>
-          )}
-        </span>
+    deleteTaskById(selectedTaskId);
+  }, [deleteTaskById, selectedTaskId]);
+
+  const deleteCalibrationChildById = useCallback(
+    async (nodeId) => {
+      const node = findNode(taskTree, nodeId);
+      const parent = findParentNode(taskTree, nodeId);
+
+      if (!node) {
+        message.error("未找到要删除的 Calibration 节点");
+        return;
+      }
+
+      if (!isCalibrationNodeName(parent?.taskName)) {
+        message.warning("只能删除 Calibration 下的一级子节点");
+        return;
+      }
+
+      const ok = window.confirm(
+        `确认删除 Calibration 子节点 "${node.taskName}" 吗？\n\n只会删除 workflow 节点，不会删除本地文件夹。`
       );
-    };
 
-    const convert = (nodes) =>
-      nodes.map((item) => ({
-        key: item.id,
-        icon: getStatusIcon(item.status),
-        title: renderNodeTitle(item),
-        children: item.children ? convert(item.children) : [],
-      }));
+      if (!ok) return;
 
-    return convert(taskTree);
-  }, [addCalibrationChild, deleteSelectedCalibrationChild, selectedTaskId, taskTree]);
-
-  const getAllKeys = (nodes) => {
-    const keys = [];
-    const dfs = (items) => {
-      items.forEach((item) => {
-        keys.push(item.id);
-        if (item.children?.length) dfs(item.children);
-      });
-    };
-    dfs(nodes);
-    return keys;
-  };
-
-  // ===========================
-  // ⭐ 初次加载自动展开全部
-  // ===========================
-  const [expandedKeys, setExpandedKeys] = useState([]);
-  const [initialized, setInitialized] = useState(false);
+      await deleteTaskById(nodeId, "Calibration 子节点已删除");
+    },
+    [deleteTaskById, taskTree]
+  );
 
   const syncSelectedTaskFromHash = useCallback(() => {
     const match = window.location.hash.match(/#\/task\/[^/]+\/([^/?#]+)/);
@@ -471,6 +587,7 @@ export default function Progress() {
 
   useEffect(() => {
     syncSelectedTaskFromHash();
+
     window.addEventListener("hashchange", syncSelectedTaskFromHash);
 
     return () => {
@@ -478,77 +595,191 @@ export default function Progress() {
     };
   }, [syncSelectedTaskFromHash]);
 
-  const onExpand = (keys) => {
-    setExpandedKeys(keys); // 用户折叠/展开后更新
-  };
+  const onExpand = useCallback((keys) => {
+    setExpandedKeys(keys);
+  }, []);
 
-  // ===========================
-  // UI
-  // ===========================
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, height: "100%" }}>
+  const treeData = useMemo(() => {
+    const stopTreeEvent = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
 
-      {/* 顶部标题 + 按钮 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <Title level={4} style={{ margin: 0 }}>Project Detail</Title>
+    const renderNodeTitle = (item) => {
+      const isCalibrationContainer = isCalibrationNodeName(item.taskName);
+      const parentNode = findParentNode(taskTree, item.id);
+      const isCalibrationDirectChild =
+        isCalibrationNodeName(parentNode?.taskName) &&
+        !isCalibrationNodeName(item.taskName);
 
-        <div style={{ display: "flex", gap: 10 }}>
-          {getCalibrationContainerNode() && (
-            <Tooltip title="Add Calibration Child">
+      return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <span>{item.taskName}</span>
+
+          {isCalibrationContainer && (
+            <Tooltip title="Add CalibrationID">
               <Button
                 type="text"
                 size="small"
-                onClick={addCalibrationChild}
-                style={{ minWidth: 24, padding: 0, fontWeight: 700, color: "#389e0d" }}
+                onMouseDown={stopTreeEvent}
+                onClick={(event) => {
+                  stopTreeEvent(event);
+                  addCalibrationChild(item);
+                }}
+                style={{
+                  minWidth: 18,
+                  padding: 0,
+                  height: 18,
+                  lineHeight: "18px",
+                  fontWeight: 700,
+                  color: "#1677ff",
+                }}
               >
                 +
               </Button>
             </Tooltip>
           )}
 
-          {getSelectedCalibrationChildNode() && (
-            <Tooltip title="Delete Calibration Child">
+          {isCalibrationDirectChild && (
+            <Tooltip title="Delete this CalibrationID from workflow only">
               <Button
                 type="text"
                 size="small"
-                onClick={deleteSelectedCalibrationChild}
-                style={{ minWidth: 24, padding: 0, fontWeight: 700, color: "#d4380d" }}
+                onMouseDown={stopTreeEvent}
+                onClick={(event) => {
+                  stopTreeEvent(event);
+                  deleteCalibrationChildById(item.id);
+                }}
+                style={{
+                  minWidth: 18,
+                  padding: 0,
+                  height: 18,
+                  lineHeight: "18px",
+                  fontWeight: 700,
+                  color: "#d4380d",
+                }}
+              >
+                -
+              </Button>
+            </Tooltip>
+          )}
+        </span>
+      );
+    };
+
+    const convert = (nodes) =>
+      nodes.map((item) => ({
+        key: item.id,
+        icon: getStatusIcon(item.status),
+        title: renderNodeTitle(item),
+        children: Array.isArray(item.children) ? convert(item.children) : [],
+      }));
+
+    return convert(taskTree);
+  }, [
+    addCalibrationChild,
+    deleteCalibrationChildById,
+    getStatusIcon,
+    taskTree,
+  ]);
+
+  const selectedCalibrationChild = getSelectedCalibrationChildNode();
+  const calibrationContainer = getCalibrationContainerNode();
+
+  return (
+    <>
+      <Space
+        style={{
+          width: "100%",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+        align="center"
+      >
+        <Title level={5} style={{ margin: 0 }}>
+          Project Detail
+        </Title>
+
+        <Space size={4}>
+          {calibrationContainer && (
+            <Tooltip title="Add CalibrationID">
+              <Button
+                type="text"
+                size="small"
+                onClick={() => addCalibrationChild(calibrationContainer)}
+                style={{
+                  fontWeight: 700,
+                  color: "#1677ff",
+                }}
+              >
+                +
+              </Button>
+            </Tooltip>
+          )}
+
+          {selectedCalibrationChild && (
+            <Tooltip title="Delete selected CalibrationID from workflow only">
+              <Button
+                type="text"
+                size="small"
+                onClick={() =>
+                  deleteCalibrationChildById(selectedCalibrationChild.node.id)
+                }
+                style={{
+                  fontWeight: 700,
+                  color: "#d4380d",
+                }}
               >
                 -
               </Button>
             </Tooltip>
           )}
 
-          <Tooltip title="Copy Selected Task">
-            <CopyOutlined style={{ fontSize: 15, cursor: "pointer" }} onClick={copySelectedTask} />
+          <Tooltip title="Copy selected task">
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              onClick={copySelectedTask}
+            />
           </Tooltip>
 
-          <Tooltip title="Delete Selected Task">
-            <DeleteOutlined style={{ fontSize: 15, color: "#ff0101", cursor: "pointer" }} onClick={deleteSelectedTask} />
+          <Tooltip title="Delete selected task">
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={deleteSelectedTask}
+            />
           </Tooltip>
-        </div>
-      </div>
-
-      <Space direction="vertical" size={4} style={{ width: "100%" }}>
-        <Text type="secondary" style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 4 }}>
-          <ProjectOutlined /> Whole Project Progress
-        </Text>
-        <ProgressBar percent={overallProgress} />
+        </Space>
       </Space>
 
-      <div style={{ overflow: "auto", flex: 1 }}>
-        <Tree
-          showIcon
-          expandedKeys={expandedKeys}
-          onExpand={onExpand}
-          treeData={treeData}
-          onSelect={(keys, info) => {
-            const uuid = info.node.key;
-            setSelectedTaskId(uuid);
-            window.location.hash = `#/task/${projectId}/${uuid}`;
-          }}
-        />
+      <div style={{ marginBottom: 12 }}>
+        <Text type="secondary">Whole Project Progress</Text>
+        <ProgressBar percent={overallProgress} />
       </div>
-    </div>
+
+      <Tree
+        showIcon
+        blockNode
+        expandedKeys={expandedKeys}
+        selectedKeys={selectedTaskId ? [selectedTaskId] : []}
+        treeData={treeData}
+        onExpand={onExpand}
+        onSelect={(keys, info) => {
+          const selectedId = info.node.key;
+          setSelectedTaskId(selectedId);
+          window.location.hash = `#/task/${projectId}/${selectedId}`;
+        }}
+      />
+    </>
   );
 }
